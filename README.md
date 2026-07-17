@@ -49,14 +49,14 @@ the tracker app, and the JB–SG drive test protocol.
 ### Backend → Docker (GHCR)
 
 Every push to `main` that touches `server/` publishes
-`ghcr.io/<owner>/<repo>/server:latest` (linux/amd64 + arm64). Tags `v*`
+`ghcr.io/isaactan98/car-community-app/server:latest` (linux/amd64 + arm64). Tags `v*`
 additionally publish semver tags. On the homelab:
 
 ```yaml
 # docker-compose.yml
 services:
   runs-server:
-    image: ghcr.io/OWNER/REPO/server:latest
+    image: ghcr.io/isaactan98/car-community-app/server:latest
     restart: unless-stopped
     ports:
       - "4000:4000"
@@ -83,7 +83,7 @@ proxied by default). Health probe: `GET /healthz`. All env vars (`PORT`,
   attaches it to a GitHub Release. Stable link for the group chat:
 
   ```
-  https://github.com/OWNER/REPO/releases/latest/download/runs.apk
+  https://github.com/isaactan98/car-community-app/releases/latest/download/runs.apk
   ```
 
 APKs are signed with the release keystore when the three `ANDROID_*` secrets
