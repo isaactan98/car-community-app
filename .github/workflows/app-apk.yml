@@ -15,6 +15,10 @@ jobs:
       run:
         working-directory: app
     env:
+      # Inlined into the JS bundle at build time. Set as a repository Variable
+      # (Settings → Secrets and variables → Actions → Variables). Must be a URL
+      # the phone can reach — not localhost. Falls back to the app default if unset.
+      EXPO_PUBLIC_SERVER_URL: ${{ vars.EXPO_PUBLIC_SERVER_URL }}
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
