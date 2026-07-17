@@ -1,0 +1,15 @@
+{
+  "name": "runs-spike-relay",
+  "version": "0.0.1",
+  "private": true,
+  "description": "M0 spike: tiny WebSocket relay for background-location testing. Positions only, never speed.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node smoke-test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

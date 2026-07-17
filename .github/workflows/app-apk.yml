@@ -1,0 +1,68 @@
+name: App APK (beta build)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/app-apk.yml"
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+
+      - name: Generate android project (Expo prebuild)
+        run: npx expo prebuild --platform android --no-install
+        env:
+          EXPO_NO_TELEMETRY: "1"
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --no-daemon
+        working-directory: app/android
+
+      # With no signing secrets configured, Expo's default release build is
+      # signed with the shared RN debug key — fine for smoke tests, NOT for
+      # distributing to the group (see credentials setup in the root README).
+      - name: Re-sign with release keystore
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n1)"
+          "$BT/apksigner" sign \
+            --ks "$RUNNER_TEMP/release.keystore" \
+            --ks-key-alias "${KEY_ALIAS:-runs}" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEYSTORE_PASSWORD \
+            android/app/build/outputs/apk/release/app-release.apk
+          "$BT/apksigner" verify --print-certs android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Collect APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/runs.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runs-apk
+          path: runs.apk
+          if-no-files-found: error

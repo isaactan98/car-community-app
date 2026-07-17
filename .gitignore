@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.expo/
+
+# Runtime data — never commit position history or the SQLite DB
+data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.ndjson
+
+# Signing credentials — keystore + passwords live here locally, secrets on GitHub
+credentials/
+*.keystore
+*.jks
+
+# Generated native projects (Expo prebuild regenerates these)
+app/android/
+app/ios/
+spike-m0/mobile/android/
+spike-m0/mobile/ios/
+
+# Built packages
+*.apk
+*.aab
+
+# Env + OS noise
+.env
+.env.*
+.DS_Store
+*.log
+*.tsbuildinfo
