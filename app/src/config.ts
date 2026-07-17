@@ -1,14 +1,22 @@
 /**
  * Single place to configure where the Runs backend lives.
  *
- * For a physical Android device on the same network, replace `localhost`
- * with your machine's LAN IP (e.g. http://192.168.1.20:4000) or your
- * Cloudflare Tunnel hostname (https://runs.example.com).
+ * Set this per-environment via the `EXPO_PUBLIC_SERVER_URL` env var (Expo
+ * inlines any `EXPO_PUBLIC_*` var into the bundle at build time). Put your
+ * real value in `.env.local` (git-ignored) — see `.env.example`. If the var
+ * is unset it falls back to `http://localhost:4000` for same-machine dev.
  *
- * Note: `localhost` on an Android device/emulator is the device itself.
- * On the stock Android emulator use http://10.0.2.2:4000 to reach the host.
+ * Examples:
+ *   - Physical device on the same LAN:  http://192.168.1.20:4000
+ *   - Over Tailscale (device + NAS on the tailnet):  http://100.124.2.91:4000
+ *   - Android emulator reaching the host:  http://10.0.2.2:4000
+ *   - Public tunnel/domain:  https://runs.example.com
+ *
+ * Note: `localhost` on a physical device/emulator means the device itself,
+ * not your dev machine — use a reachable IP/hostname there.
  */
-export const SERVER_URL = "http://localhost:4000";
+export const SERVER_URL =
+  process.env.EXPO_PUBLIC_SERVER_URL ?? "http://localhost:4000";
 
 /** REST base path, per docs/CONTRACT.md. */
 export const API_BASE = `${SERVER_URL}/api/v1`;
