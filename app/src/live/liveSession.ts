@@ -17,7 +17,7 @@
  */
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
-import { Linking } from "react-native";
+import { AppState, Linking } from "react-native";
 
 import type {
   ClientMessage,
@@ -244,6 +244,40 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(
   },
 );
 
+/**
+ * Resolve once the app is in the foreground (or immediately if it already is).
+ *
+ * Starting a location foreground service (`startLocationUpdatesAsync` with
+ * `foregroundService`) calls `Context.startForegroundService()` natively. On
+ * Android 12+ — and enforced strictly on Android 15/16 — doing that while the
+ * app is in the background throws `ForegroundServiceStartNotAllowedException`,
+ * a native crash JS cannot catch. The "Allow all the time" grant routes the
+ * user through the system Settings screen, so when
+ * `requestBackgroundPermissionsAsync()` resolves the app may still be
+ * transitioning back to the foreground. Wait for `active` before starting.
+ */
+function waitForForeground(timeoutMs = 10_000): Promise<boolean> {
+  if (AppState.currentState === "active") return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      sub.remove();
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") finish(true);
+    });
+    // Give up rather than hang forever; caller falls back to foreground-only.
+    const timer = setTimeout(
+      () => finish(AppState.currentState === "active"),
+      timeoutMs,
+    );
+  });
+}
+
 async function stopLocationUpdates() {
   try {
     if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) {
@@ -376,7 +410,10 @@ export async function startLiveSession(
       }
     }
 
-    if (bg.granted) {
+    // Only start the foreground service while the app is actually foreground
+    // (see waitForForeground) — starting it during the post-Settings
+    // background transition crashes natively on Android 12+.
+    if (bg.granted && (await waitForForeground())) {
       await Location.startLocationUpdatesAsync(LOCATION_TASK, {
         accuracy: Location.Accuracy.High,
         timeInterval: 5000,
