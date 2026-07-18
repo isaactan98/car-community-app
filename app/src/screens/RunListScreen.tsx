@@ -13,6 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { listRuns } from "../api/client";
 import type { Run } from "../api/types";
@@ -54,6 +55,7 @@ function formatStartsAt(iso: string): string {
 
 export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
   const { member, logout } = useSession();
+  const insets = useSafeAreaInsets();
   const now = useNow(30_000);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [offline, setOffline] = useState(false);
@@ -134,7 +136,12 @@ export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
           </View>
         }
       />
-      <View style={styles.footer}>
+      <View
+        style={[
+          styles.footer,
+          { paddingBottom: spacing.l + insets.bottom },
+        ]}
+      >
         <View style={styles.footerRow}>
           <View style={styles.footerGrow}>
             <Button

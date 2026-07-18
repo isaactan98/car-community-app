@@ -1,6 +1,7 @@
 import { DarkTheme, NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 // Importing the live session registers the background location task with
 // TaskManager at JS startup — required for the Android foreground service.
@@ -74,11 +75,13 @@ function Root() {
 
 export default function App() {
   return (
-    <SessionProvider>
-      <NavigationContainer theme={theme}>
-        <StatusBar style="light" />
-        <Root />
-      </NavigationContainer>
-    </SessionProvider>
+    <SafeAreaProvider>
+      <SessionProvider>
+        <NavigationContainer theme={theme}>
+          <StatusBar style="light" />
+          <Root />
+        </NavigationContainer>
+      </SessionProvider>
+    </SafeAreaProvider>
   );
 }
