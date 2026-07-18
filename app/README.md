@@ -72,8 +72,10 @@ foreground-only watcher (positions stop when the app is backgrounded) and
 everything else still works.
 
 On aggressive OEM builds (Xiaomi/Oppo/etc.) also exempt the app from battery
-optimization or background updates may still be killed — see the spec's risk
-table.
+optimization or background updates may still be killed. Per-brand steps are in
+[`../docs/android-battery-setup.md`](../docs/android-battery-setup.md), which
+the app also links to in-app (the "Allow all the time" background prompt and
+the foreground-only hint on the arrival board both point at it).
 
 ## Privacy behavior (R7)
 

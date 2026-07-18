@@ -41,3 +41,12 @@ export const STALENESS_THRESHOLD_MS = 60_000;
 
 /** Minimum interval between client-computed `eta` messages. */
 export const ETA_SEND_INTERVAL_MS = 15_000;
+
+/**
+ * Per-OEM battery / "Allow all the time" setup guide (docs/android-battery-setup.md),
+ * surfaced in-app when a phone is likely to kill background location. Points at
+ * the repo copy on `main` so it stays reachable without bundling a markdown
+ * renderer; expand the doc as group devices reveal new quirks.
+ */
+export const BATTERY_GUIDE_URL =
+  "https://github.com/isaactan98/car-community-app/blob/main/docs/android-battery-setup.md";
