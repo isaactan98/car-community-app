@@ -1,0 +1,52 @@
+# Runs backend + Adminer (SQLite admin UI) on one shared data volume.
+#
+#   docker compose up -d
+#
+# Adminer gives you browse / SELECT / UPDATE / DELETE + a SQL console over the
+# same data/runs.db the server uses. READ THE SECURITY NOTES in server/README
+# ("Admin DB UI") before exposing it — SQLite has no password, so the ONLY thing
+# keeping people out is the network bind below. Keep it on your tailnet.
+
+services:
+  server:
+    # Published by .github/workflows/server-docker.yml. Or build locally:
+    #   build: .
+    image: ghcr.io/isaactan98/car-community-app/server:latest
+    restart: unless-stopped
+    ports:
+      - "4000:4000" # restrict to your tailnet IP too if you don't use the tunnel
+    volumes:
+      - ./data:/app/data # SQLite file persists here: ./data/runs.db
+    environment:
+      DB_PATH: /app/data/runs.db
+      INVITE_CODES: ${INVITE_CODES:-}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:4000/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    # Run as the same uid that owns runs.db (node = 1000 in the server image),
+    # or Adminer can read but not write the file / its -wal sidecar.
+    user: "1000:1000"
+    # Bind ONLY to your NAS's Tailscale IP so this is unreachable off the tailnet.
+    # Replace 100.124.2.91 with your tailnet IP. NEVER use "8081:8080" (all interfaces)
+    # or route it through the public Cloudflare tunnel — Adminer can delete your data.
+    ports:
+      - "100.124.2.91:8081:8080"
+    volumes:
+      - ./data:/data # log in with database path /data/runs.db
+    environment:
+      # Prefill the login so you only pick "SQLite 3" and hit enter.
+      ADMINER_DEFAULT_SERVER: /data/runs.db
+    depends_on:
+      - server
