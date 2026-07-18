@@ -17,6 +17,7 @@
  */
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
+import { Linking } from "react-native";
 
 import type {
   ClientMessage,
@@ -265,6 +266,28 @@ export interface StartResult {
 }
 
 /**
+ * UI callbacks for the two-step Android background-permission flow (A6). Both
+ * are optional — omitting them preserves the old straight-through behaviour
+ * (ask foreground, then background, no explainer). The screen supplies these
+ * so the human-facing copy lives in the UI while liveSession stays the single
+ * owner of the permission *sequence* (and thus the R7 privacy invariant).
+ */
+export interface StartHooks {
+  /**
+   * Shown after foreground is granted but before the OS background prompt.
+   * Resolve `true` to proceed to the system dialog, `false` to stay
+   * foreground-only (user shows as "sharing off" when backgrounded).
+   */
+  explainBackground?: () => Promise<boolean>;
+  /**
+   * Shown when Android will no longer surface the runtime dialog (background
+   * denied with `canAskAgain === false`) — the only way left to grant "Allow
+   * all the time" is Settings. Resolve `true` to deep-link there.
+   */
+  offerSettings?: () => Promise<boolean>;
+}
+
+/**
  * Start sharing into `run`. Caller must ensure run.state === "active" and
  * the member has joined (R7) — this function double-checks and refuses
  * otherwise.
@@ -273,6 +296,7 @@ export async function startLiveSession(
   run: Run,
   token: string,
   selfId: string,
+  hooks?: StartHooks,
 ): Promise<StartResult> {
   if (run.state !== "active") {
     return { started: false, background: false, error: "Run is not active" };
@@ -322,7 +346,36 @@ export async function startLiveSession(
         error: "Location permission denied",
       };
     }
-    const bg = await Location.requestBackgroundPermissionsAsync();
+
+    // Two-step background flow (A6). Foreground is enough to *start* sharing;
+    // background is what keeps it alive with the screen off. We only reach for
+    // it after an in-app explanation, and fall back to a Settings deep-link
+    // when Android will no longer show the runtime dialog.
+    let bg = await Location.getBackgroundPermissionsAsync();
+    if (!bg.granted) {
+      const proceed = hooks?.explainBackground
+        ? await hooks.explainBackground()
+        : true;
+      if (proceed) {
+        bg = await Location.requestBackgroundPermissionsAsync();
+        // Android 11+: once "Allow all the time" is refused the OS stops
+        // re-prompting — only Settings can grant it now.
+        if (!bg.granted && !bg.canAskAgain && hooks?.offerSettings) {
+          const goToSettings = await hooks.offerSettings();
+          if (goToSettings) {
+            try {
+              await Linking.openSettings();
+            } catch {
+              // no-op: user can still open settings by hand
+            }
+          }
+          // Re-read in case they granted it and came straight back; if not,
+          // we degrade to foreground-only and the next start will upgrade.
+          bg = await Location.getBackgroundPermissionsAsync();
+        }
+      }
+    }
+
     if (bg.granted) {
       await Location.startLocationUpdatesAsync(LOCATION_TASK, {
         accuracy: Location.Accuracy.High,
@@ -330,8 +383,10 @@ export async function startLiveSession(
         distanceInterval: 0,
         foregroundService: {
           notificationTitle: "Runs — sharing location",
-          notificationBody:
-            "Your position is visible to this run while it is active.",
+          // Name the run so the persistent notification doubles as the R7
+          // privacy indicator: at a glance you know exactly what you're
+          // sharing into.
+          notificationBody: `Your position is visible to "${run.name}" while it is active.`,
           killServiceOnDestroy: true,
         },
       });

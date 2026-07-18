@@ -19,6 +19,7 @@ import {
 import {
   Alert,
   FlatList,
+  Linking,
   Modal,
   Share,
   StyleSheet,
@@ -39,11 +40,13 @@ import {
   startRun,
 } from "../api/client";
 import type { AttendeeStatus, Car } from "../api/types";
+import { BATTERY_GUIDE_URL } from "../config";
 import {
   activeSessionRunId,
   startLiveSession,
   stopLiveSession,
   subscribeLiveSession,
+  type StartHooks,
 } from "../live/liveSession";
 import { formatEta } from "../lib/eta";
 import {
@@ -78,6 +81,57 @@ interface BoardRow {
   etaSeconds: number | null;
 }
 
+function openBatteryGuide() {
+  void Linking.openURL(BATTERY_GUIDE_URL).catch(() => {
+    Alert.alert(
+      "Couldn't open the guide",
+      "Find the battery setup steps in the app's README / repo.",
+    );
+  });
+}
+
+/**
+ * UI side of the two-step background-permission flow (A6). liveSession owns the
+ * permission *sequence*; these callbacks own the plain-language copy.
+ */
+const permissionHooks: StartHooks = {
+  explainBackground: () =>
+    new Promise<boolean>((resolve) => {
+      Alert.alert(
+        "Keep sharing when your screen is off",
+        'Runs needs "Allow all the time" location so your kaki can still see you ' +
+          "on the map when your screen is locked or Waze is in front. We only " +
+          "share while a run you've joined is active — never otherwise.",
+        [
+          { text: "Not now", style: "cancel", onPress: () => resolve(false) },
+          { text: "Continue", onPress: () => resolve(true) },
+        ],
+        { cancelable: false },
+      );
+    }),
+  offerSettings: () =>
+    new Promise<boolean>((resolve) => {
+      Alert.alert(
+        'Set location to "Allow all the time"',
+        "Android needs you to switch this app's location to \"Allow all the " +
+          'time" in Settings so your position keeps updating with the screen ' +
+          "off. Some phones also need Runs exempted from battery optimisation.",
+        [
+          {
+            text: "Battery guide",
+            onPress: () => {
+              openBatteryGuide();
+              resolve(false);
+            },
+          },
+          { text: "Not now", style: "cancel", onPress: () => resolve(false) },
+          { text: "Open settings", onPress: () => resolve(true) },
+        ],
+        { cancelable: false },
+      );
+    }),
+};
+
 export default function RunDetailScreen({
   route,
   navigation,
@@ -88,6 +142,9 @@ export default function RunDetailScreen({
   const [state, dispatch] = useReducer(liveRunReducer, initialLiveRunState);
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // True when we're sharing but only in the foreground (background permission
+  // not granted) — drives the battery/permission help link (A6/A7).
+  const [foregroundOnly, setForegroundOnly] = useState(false);
 
   const run = state.run;
   const selfId = member?.id ?? "";
@@ -149,13 +206,16 @@ export default function RunDetailScreen({
   useEffect(() => {
     if (!run || !token || !selfId) return;
     if (run.state === "active" && joined) {
-      void startLiveSession(run, token, selfId).then((res) => {
+      void startLiveSession(run, token, selfId, permissionHooks).then((res) => {
         if (!res.started && res.error === "Location permission denied") {
           Alert.alert(
             "Location permission needed",
             "Others can't see you on the run without location access. You can still view the board.",
           );
         }
+        // Sharing works but only while the app is open — surface the guide so
+        // the user can grant "Allow all the time" / fix battery settings.
+        setForegroundOnly(res.started && !res.background);
       });
     } else if (run.state === "ended" && activeSessionRunId() === run.id) {
       void stopLiveSession();
@@ -359,6 +419,15 @@ export default function RunDetailScreen({
               />
             ) : null}
 
+            {foregroundOnly && run.state === "active" && joined ? (
+              <Pressable onPress={openBatteryGuide} style={styles.hint}>
+                <Text style={styles.hintText}>
+                  Sharing stops when your screen is off. Tap for the battery
+                  &amp; &ldquo;Allow all the time&rdquo; setup guide.
+                </Text>
+              </Pressable>
+            ) : null}
+
             <Text style={styles.boardTitle}>
               {counts.arrived}/{counts.total} arrived
             </Text>
@@ -528,6 +597,14 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: spacing.s,
   },
+  hint: {
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.amber,
+    padding: spacing.m,
+  },
+  hintText: { color: colors.amber, fontSize: 13, fontWeight: "600" },
   attendeeRow: {
     flexDirection: "row",
     alignItems: "center",
