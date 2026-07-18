@@ -15,7 +15,11 @@ import { StyleSheet, Text, View } from "react-native";
 import { getRun } from "../api/client";
 import type { SnapshotMember } from "../api/types";
 import { MAP_STYLE_URL } from "../config";
-import { subscribeLiveSession } from "../live/liveSession";
+import {
+  activeSessionRunId,
+  isSocketConnected,
+  subscribeLiveSession,
+} from "../live/liveSession";
 import { distanceToCarAhead, formatDistance } from "../lib/geo";
 import {
   initialLiveRunState,
@@ -73,6 +77,13 @@ export default function LiveMapScreen({ route }: ScreenProps<"LiveMap">) {
   }, [load]);
 
   useEffect(() => {
+    // We almost always arrive here after RunDetail already opened the socket,
+    // so the initial `ws_connected` event fired before we subscribed. Seed from
+    // the live session's current state, or the map would show a false
+    // "Offline — data stale" banner for the whole run.
+    if (activeSessionRunId() === runId && isSocketConnected()) {
+      dispatch({ type: "ws_connected" });
+    }
     return subscribeLiveSession((event) => {
       if (event.kind === "message") {
         dispatch({
@@ -84,7 +95,7 @@ export default function LiveMapScreen({ route }: ScreenProps<"LiveMap">) {
         dispatch({ type: event.connected ? "ws_connected" : "ws_disconnected" });
       }
     });
-  }, []);
+  }, [runId]);
 
   const members: SnapshotMember[] = state.snapshot?.members ?? [];
   const positioned = members.filter((m) => m.lastPosition !== null);
