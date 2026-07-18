@@ -83,6 +83,53 @@ onboard the whole group); the `uses` counter is tracked in the DB.
 - **Retention:** position history is deleted 24 h after a run ends
   (scheduled sweep). ETAs live in memory only and vanish on end/leave/arrival.
 
+## Admin DB UI (Adminer)
+
+`docker-compose.yml` runs the server plus [Adminer](https://www.adminer.org/)
+against the same `data/runs.db`, giving you browse / SELECT / UPDATE / DELETE
+and a SQL console in the browser:
+
+```sh
+cd server
+docker compose up -d
+```
+
+Then open the Adminer URL (see the port bind in the compose file) and log in:
+
+| Field | Value |
+|---|---|
+| System | **SQLite 3** |
+| Username / Password | *(leave blank — SQLite has no auth)* |
+| Database | `/data/runs.db` |
+
+> ⚠️ **Security — read this.** SQLite has no password, so Adminer's login is
+> **not** a real gate: anyone who can load the page can edit the DB. The only
+> thing protecting your data is the **network bind**. The compose file binds
+> Adminer to a single **Tailscale IP** (`100.124.2.91:8081` — change it to
+> yours). Never bind it to all interfaces (`8081:8080`) and never route it
+> through the public Cloudflare tunnel. If you want a real login on top, put a
+> reverse proxy with basic-auth in front.
+
+Two operational notes:
+
+- **Write permission.** `runs.db` is owned by uid `1000` (the `node` user in
+  the server image). The compose runs Adminer as `user: "1000:1000"` so it can
+  actually write (and create the `-wal`/`-shm` sidecars). If edits fail as
+  read-only, that uid mapping is why.
+- **Concurrency (WAL).** The Node server holds the file open in WAL mode.
+  Concurrent reads are fine; a write from Adminer can occasionally hit
+  `database is locked` if it collides with the server. Prefer editing when runs
+  are inactive, and for multi-table changes respect the foreign keys (delete
+  children first: `positions` → `run_attendees` → `runs`).
+
+### Back up before you edit
+
+`VACUUM INTO` makes a clean, consistent copy even while the server is running:
+
+```sh
+sh scripts/backup-db.sh        # writes ./data/backup-<timestamp>.db
+```
+
 ## Schema note (P2 roles)
 
 Attendee state lives in `run_attendees` (one row per run+member). Optional
