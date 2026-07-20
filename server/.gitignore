@@ -1,3 +1,6 @@
+# root .gitignore ignores .env.* — re-include the committed template
+!.env.example
+
 node_modules/
 dist/
 data/
