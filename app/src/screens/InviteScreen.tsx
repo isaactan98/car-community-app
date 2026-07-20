@@ -17,6 +17,7 @@ import {
 import { ApiError } from "../api/client";
 import { useSession } from "../session/SessionContext";
 import { Button, Screen } from "../ui/components";
+import { LogoMark } from "../ui/Logo";
 import { colors, spacing } from "../ui/theme";
 
 function codeFromUrl(url: string | null): string | null {
@@ -77,6 +78,9 @@ export default function InviteScreen() {
   return (
     <Screen>
       <KeyboardAvoidingView style={styles.wrap} behavior="padding">
+        <View style={styles.brand}>
+          <LogoMark size={96} />
+        </View>
         <Text style={styles.title}>Runs</Text>
         <Text style={styles.subtitle}>
           Private group. Enter the invite code you were given.
@@ -113,6 +117,7 @@ export default function InviteScreen() {
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, justifyContent: "center", padding: spacing.xl },
+  brand: { alignItems: "center", marginBottom: spacing.m },
   title: {
     color: colors.text,
     fontSize: 40,
