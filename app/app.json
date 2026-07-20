@@ -11,10 +11,7 @@
       "bundleIdentifier": "app.runs.beta",
       "supportsTablet": false,
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "Runs connects to your group's server, which may be on your local network.",
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        }
+        "NSLocalNetworkUsageDescription": "Runs connects to your group's server, which may be on your local network."
       }
     },
     "android": {
@@ -55,14 +52,6 @@
           "isIosBackgroundLocationEnabled": true,
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
-        }
-      ],
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": true
-          }
         }
       ]
     ]

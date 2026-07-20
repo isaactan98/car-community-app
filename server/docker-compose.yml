@@ -1,16 +1,29 @@
-# Runs backend + Adminer (SQLite admin UI) on one shared data volume.
+# Runs backend + Adminer (SQLite admin UI) on one shared data volume, with an
+# optional Cloudflare Tunnel for the public production endpoint.
 #
-#   docker compose up -d
+# Two ways to run it (see also "Deploying" in README.md):
+#
+#   TAILNET mode (staging / JB) — default:
+#       docker compose up -d
+#     docker-compose.override.yml is auto-loaded and publishes the server on
+#     TAILNET_IP:4000 (WireGuard-only). Nothing listens on 0.0.0.0.
+#
+#   TUNNEL mode (production / SG) — explicit base file, no host port at all:
+#       docker compose -f docker-compose.yml --profile tunnel up -d
+#     cloudflared reaches the server over the compose network (http://server:4000)
+#     and the ONLY way in from outside is https://runs.<domain> via Cloudflare.
+#     Ingress is configured dashboard-side (remotely-managed tunnel):
+#     runs.<domain> -> http://server:4000. WebSockets are proxied by default.
 #
 # Adminer gives you browse / SELECT / UPDATE / DELETE + a SQL console over the
 # same data/runs.db the server uses. READ THE SECURITY NOTES in server/README
 # ("Admin DB UI") before exposing it — SQLite has no password, so the ONLY thing
-# keeping people out is the network bind below. Keep it on your tailnet.
+# keeping people out is the network bind below. It stays tailnet-bound in BOTH
+# modes and must never go through the tunnel.
 #
-# Both services bind to TAILNET_IP (your machine's Tailscale IP, set in
-# server/.env — see .env.example). Nothing here listens on 0.0.0.0: off the
-# tailnet the server simply does not exist. Compose fails loudly if the var
-# is missing rather than silently publishing on all interfaces.
+# TAILNET_IP (and TUNNEL_TOKEN for tunnel mode) live in server/.env — see
+# .env.example. Compose fails loudly if TAILNET_IP is missing rather than
+# silently publishing on all interfaces.
 
 services:
   server:
@@ -18,8 +31,8 @@ services:
     #   build: .
     image: ghcr.io/isaactan98/car-community-app/server:latest
     restart: unless-stopped
-    ports:
-      - "${TAILNET_IP:?set TAILNET_IP in server/.env (your tailnet IP)}:4000:4000"
+    # No ports here on purpose: tailnet mode gets its host bind from
+    # docker-compose.override.yml; tunnel mode publishes nothing.
     volumes:
       - ./data:/app/data # SQLite file persists here: ./data/runs.db
     environment:
@@ -53,5 +66,22 @@ services:
     environment:
       # Prefill the login so you only pick "SQLite 3" and hit enter.
       ADMINER_DEFAULT_SERVER: /data/runs.db
+    depends_on:
+      - server
+
+  # Public TLS endpoint (production only): remotely-managed Cloudflare Tunnel.
+  # Dormant unless started with `--profile tunnel`. The token comes from the
+  # Zero Trust dashboard (create tunnel -> copy token) via server/.env; the
+  # ingress rule (runs.<domain> -> http://server:4000) is configured in the
+  # dashboard, not here. `TUNNEL_TOKEN` uses :- not :? so tailnet-mode users
+  # don't need the var; without it cloudflared exits at start, which is loud
+  # enough — and only in tunnel mode.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     depends_on:
       - server

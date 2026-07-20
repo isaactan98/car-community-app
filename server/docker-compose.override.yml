@@ -1,0 +1,11 @@
+# TAILNET mode (the default): auto-loaded by `docker compose up -d`, publishes
+# the server on the WireGuard-only tailnet IP. This is the staging/JB profile.
+#
+# Production (SG) must NOT load this file — run the base file explicitly:
+#   docker compose -f docker-compose.yml --profile tunnel up -d
+# so the server has no host port at all and is reachable only through the
+# Cloudflare tunnel.
+services:
+  server:
+    ports:
+      - "${TAILNET_IP:?set TAILNET_IP in server/.env (your tailnet IP)}:4000:4000"

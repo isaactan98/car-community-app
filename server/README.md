@@ -138,12 +138,22 @@ Attendee state lives in `run_attendees` (one row per run+member). Optional
 roles later are a single `ALTER TABLE run_attendees ADD COLUMN role TEXT` —
 no data migration needed. Deliberately not built in v1.
 
-## Deploying behind Cloudflare Tunnel (homelab)
+## Deploying behind Cloudflare Tunnel (production)
 
 The server is a single plain HTTP listener — WebSocket upgrades included — so
-it works behind `cloudflared` with no special config beyond pointing a tunnel
-ingress at `http://localhost:4000` (Cloudflare Tunnel proxies WebSockets by
-default). Tunnel setup, DNS, and access policies are left to the operator;
-the app has no cloud dependencies and never needs to know it is behind a
-tunnel. Run it under a process supervisor (systemd, pm2, …) and back up the
-single SQLite file at `DB_PATH`.
+it works behind `cloudflared` with no special config (Cloudflare Tunnel
+proxies WebSockets by default). The compose file bundles a `cloudflared`
+service behind the `tunnel` profile:
+
+```sh
+# production box — no host port published; only the tunnel reaches the server
+docker compose -f docker-compose.yml --profile tunnel up -d
+```
+
+Create a **remotely-managed tunnel** in the Zero Trust dashboard, put its
+token in `server/.env` (`TUNNEL_TOKEN`), and configure the ingress
+dashboard-side: `https://runs.<domain>` → `http://server:4000` (the compose
+service name resolves on the internal network). The app has no cloud
+dependencies and never needs to know it is behind a tunnel. Deployment modes,
+manual failover, and the watchdog/backup runbook live in the root README's
+"Deployment" section.

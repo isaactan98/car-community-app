@@ -52,26 +52,54 @@ Every push to `main` that touches `server/` publishes
 `ghcr.io/isaactan98/car-community-app/server:latest` (linux/amd64 + arm64). Tags `v*`
 additionally publish semver tags. On the homelab:
 
-```yaml
-# docker-compose.yml
-services:
-  runs-server:
-    image: ghcr.io/isaactan98/car-community-app/server:latest
-    restart: unless-stopped
-    ports:
-      # Bind to the tailnet IP only — never "4000:4000" (all interfaces).
-      # server/docker-compose.yml reads this from TAILNET_IP in server/.env.
-      - "100.x.y.z:4000:4000"
-    volumes:
-      - ./data:/app/data          # SQLite lives here
-    environment:
-      INVITE_CODES: "RUNS-XXXX"   # seeded at boot (idempotent, comma-separated)
+`server/docker-compose.yml` runs in one of two modes (see the file header):
+
+```sh
+cd server
+cp .env.example .env   # set TAILNET_IP; add TUNNEL_TOKEN for production
+
+# STAGING / JB — tailnet-only (default; docker-compose.override.yml auto-loads):
+docker compose up -d
+
+# PRODUCTION / SG — Cloudflare Tunnel, no host port published at all:
+docker compose -f docker-compose.yml --profile tunnel up -d
 ```
 
-Point a Cloudflare Tunnel ingress at `http://localhost:4000` (WebSockets are
-proxied by default). Health probe: `GET /healthz`. All env vars (`PORT`,
-`DB_PATH`, `GEOFENCE_RADIUS_M`, timers…) are documented in
-[server/README.md](server/README.md).
+In tunnel mode a bundled `cloudflared` container (remotely-managed tunnel;
+token in `server/.env`) reaches the server over the compose network. Configure
+the ingress in the Zero Trust dashboard: `https://runs.<domain>` →
+`http://server:4000` — WebSockets are proxied by default. Health probe:
+`GET /healthz`. All env vars (`PORT`, `DB_PATH`, `GEOFENCE_RADIUS_M`, timers…)
+are documented in [server/README.md](server/README.md).
+
+**Release gate:** no APK goes beyond the tailnet inner circle until the tunnel
+cutover is live — see "Release Gates" in [runs-v1-spec.md](runs-v1-spec.md).
+
+#### Manual failover (SG down → serve from JB)
+
+No automatic failover by design (R6 degraded mode covers the outage window).
+The tunnel is remotely managed, so any box running `cloudflared` with the same
+token serves `runs.<domain>`:
+
+1. On JB, stop the staging stack: `cd server && docker compose down`.
+2. Restore the newest off-site backup: `cp data/backup-<latest>.db data/runs.db`.
+3. Put the production `TUNNEL_TOKEN` into JB's `server/.env`.
+4. Start tunnel mode on JB: `docker compose -f docker-compose.yml --profile tunnel up -d`.
+5. Verify `https://runs.<domain>/healthz`, tell the group; reverse the steps
+   (newest backup back onto SG) when SG returns.
+
+Rehearse this once before you need it — an untested backup is a wish, not a
+backup.
+
+#### Watchdog + nightly off-site backup
+
+- **Watchdog (on JB):** run [Uptime Kuma](https://github.com/louislam/uptime-kuma)
+  checking `https://runs.<domain>/healthz` every 30–60 s with Telegram (or
+  push) alerting. After setup, stop the SG stack once on purpose and confirm
+  the alert fires within 2 minutes — test the alarm, don't trust it.
+- **Backups (on SG):** nightly cron runs `scripts/backup-db.sh` with
+  `BACKUP_PUSH_DEST` pointed at JB over the tailnet (hot `VACUUM INTO` backup,
+  scp push, local retention prune — cron line in the script header).
 
 > If the repo is private, the GHCR package is too: either make the package
 > public (Package settings → Change visibility) or `docker login ghcr.io`
