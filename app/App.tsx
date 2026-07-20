@@ -16,6 +16,7 @@ import RunDetailScreen from "./src/screens/RunDetailScreen";
 import RunListScreen from "./src/screens/RunListScreen";
 import { SessionProvider, useSession } from "./src/session/SessionContext";
 import { Loading } from "./src/ui/components";
+import { Wordmark } from "./src/ui/Logo";
 import { colors } from "./src/ui/theme";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -47,7 +48,10 @@ function Root() {
       <Stack.Screen
         name="Runs"
         component={RunListScreen}
-        options={{ title: "Runs" }}
+        options={{
+          title: "Runs",
+          headerTitle: () => <Wordmark size={22} />,
+        }}
       />
       <Stack.Screen
         name="CreateRun"
