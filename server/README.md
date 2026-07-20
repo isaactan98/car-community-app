@@ -91,6 +91,7 @@ and a SQL console in the browser:
 
 ```sh
 cd server
+cp .env.example .env   # set TAILNET_IP to your Tailscale IP (tailscale ip -4)
 docker compose up -d
 ```
 
@@ -105,8 +106,9 @@ Then open the Adminer URL (see the port bind in the compose file) and log in:
 > ⚠️ **Security — read this.** SQLite has no password, so Adminer's login is
 > **not** a real gate: anyone who can load the page can edit the DB. The only
 > thing protecting your data is the **network bind**. The compose file binds
-> Adminer to a single **Tailscale IP** (`100.124.2.91:8081` — change it to
-> yours). Never bind it to all interfaces (`8081:8080`) and never route it
+> Adminer (and the server) to a single **Tailscale IP** — `TAILNET_IP` in
+> `server/.env`, see `.env.example`. Never bind it to all interfaces
+> (`8081:8080`) and never route it
 > through the public Cloudflare tunnel. If you want a real login on top, put a
 > reverse proxy with basic-auth in front.
 

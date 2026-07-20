@@ -111,6 +111,16 @@ DoD: dogfooded at one real static meetup with 5+ friends; zero "reached"/"otw" m
 R4, R5, R6 complete.
 DoD: one real group drive where nobody opens WhatsApp to ask where anyone is.
 
+## Release Gates
+
+No APK may be distributed beyond the tailnet inner circle until Workstream B
+is cut over: Cloudflare Tunnel live, `EXPO_PUBLIC_SERVER_URL` on `https://`,
+realtime on `wss://`, `usesCleartextTraffic` removed.
+
+(Workstreams defined in the Network Hardening iteration spec: A = tailnet
+hardening, ships immediately; B = Cloudflare Tunnel + SG production cutover,
+the group-release gate above.)
+
 ## Success Metrics
 
 - Leading: installs from the group (target 10+ in month 1); % of run attendees auto-checked-in vs manually announced; location update continuity during M2 drive (>95% of participants with <60s staleness).

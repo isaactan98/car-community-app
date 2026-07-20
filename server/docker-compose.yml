@@ -6,6 +6,11 @@
 # same data/runs.db the server uses. READ THE SECURITY NOTES in server/README
 # ("Admin DB UI") before exposing it — SQLite has no password, so the ONLY thing
 # keeping people out is the network bind below. Keep it on your tailnet.
+#
+# Both services bind to TAILNET_IP (your machine's Tailscale IP, set in
+# server/.env — see .env.example). Nothing here listens on 0.0.0.0: off the
+# tailnet the server simply does not exist. Compose fails loudly if the var
+# is missing rather than silently publishing on all interfaces.
 
 services:
   server:
@@ -14,7 +19,7 @@ services:
     image: ghcr.io/isaactan98/car-community-app/server:latest
     restart: unless-stopped
     ports:
-      - "4000:4000" # restrict to your tailnet IP too if you don't use the tunnel
+      - "${TAILNET_IP:?set TAILNET_IP in server/.env (your tailnet IP)}:4000:4000"
     volumes:
       - ./data:/app/data # SQLite file persists here: ./data/runs.db
     environment:
@@ -38,11 +43,11 @@ services:
     # Run as the same uid that owns runs.db (node = 1000 in the server image),
     # or Adminer can read but not write the file / its -wal sidecar.
     user: "1000:1000"
-    # Bind ONLY to your NAS's Tailscale IP so this is unreachable off the tailnet.
-    # Replace 100.124.2.91 with your tailnet IP. NEVER use "8081:8080" (all interfaces)
-    # or route it through the public Cloudflare tunnel — Adminer can delete your data.
+    # Bind ONLY to the Tailscale IP so this is unreachable off the tailnet.
+    # NEVER use "8081:8080" (all interfaces) or route it through the public
+    # Cloudflare tunnel — Adminer can delete your data.
     ports:
-      - "100.124.2.91:8081:8080"
+      - "${TAILNET_IP:?set TAILNET_IP in server/.env (your tailnet IP)}:8081:8080"
     volumes:
       - ./data:/data # log in with database path /data/runs.db
     environment:

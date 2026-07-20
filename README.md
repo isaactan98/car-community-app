@@ -59,7 +59,9 @@ services:
     image: ghcr.io/isaactan98/car-community-app/server:latest
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      # Bind to the tailnet IP only — never "4000:4000" (all interfaces).
+      # server/docker-compose.yml reads this from TAILNET_IP in server/.env.
+      - "100.x.y.z:4000:4000"
     volumes:
       - ./data:/app/data          # SQLite lives here
     environment:
