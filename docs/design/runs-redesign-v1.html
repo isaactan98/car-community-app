@@ -1,0 +1,1224 @@
+<title>Runs Night Build</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* ============================================================
+   RUNS — Night Build. Design review deck.
+   Page commits to one visual world (the inside of a car at 11pm),
+   so every colour is painted explicitly and there is no theme swap
+   on the page chrome. The PHONE SCREENS carry their own token set
+   (--a-*) which the Night/Day control flips, because the shipping
+   app must support both.
+   ============================================================ */
+:root{
+  --asphalt:#0B0D11;
+  --asphalt-2:#10131A;
+  --panel:#171B23;
+  --kerb:#252B36;
+  --kerb-soft:#1C212A;
+  --marking:#EDF0F5;
+  --marking-2:#98A1AF;
+  --marking-3:#626B7A;
+  --sodium:#FF7A1A;
+  --sodium-dim:rgba(255,122,26,.13);
+  --signal:#3FD98B;
+  --beam:#5AA9FF;
+  --flare:#FF5A4E;
+
+  --display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --ui:"Barlow","Helvetica Neue",Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+
+  /* App tokens — NIGHT (default) */
+  --a-bg:#0B0D11; --a-surface:#151920; --a-raised:#1E232C; --a-line:#2A313D;
+  --a-text:#F2F5F9; --a-text-2:#98A1AF; --a-text-3:#626B7A;
+  --a-accent:#FF7A1A; --a-on-accent:#150A02;
+  --a-signal:#3FD98B; --a-beam:#5AA9FF; --a-flare:#FF6259;
+  --a-map:#0E1218; --a-map-road:#2C333F; --a-map-water:#0B1620;
+  --a-chip:rgba(255,255,255,.07);
+  --a-glass:rgba(21,25,32,.82);
+  --a-shadow:0 8px 28px rgba(0,0,0,.55);
+}
+[data-app="day"]{
+  --a-bg:#EDEFF3; --a-surface:#FFFFFF; --a-raised:#F4F6F9; --a-line:#D9DEE6;
+  --a-text:#0D1117; --a-text-2:#5A6472; --a-text-3:#8A93A1;
+  --a-accent:#C2500A; --a-on-accent:#FFFFFF;
+  --a-signal:#128A52; --a-beam:#1667D6; --a-flare:#C42B22;
+  --a-map:#E4E8EE; --a-map-road:#FFFFFF; --a-map-water:#CBD9E4;
+  --a-chip:rgba(13,17,23,.06);
+  --a-glass:rgba(255,255,255,.86);
+  --a-shadow:0 8px 24px rgba(13,17,23,.14);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--asphalt);
+  color:var(--marking);
+  font-family:var(--ui);
+  font-size:16px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin-inline:auto;padding-inline:20px;padding-block:0}
+h1,h2,h3,h4{margin:0;text-wrap:balance;font-family:var(--display)}
+p{margin:0}
+a{color:var(--sodium)}
+
+/* ---------- shared bits ---------- */
+.eyebrow{
+  font-family:var(--display);font-weight:700;font-size:11px;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--marking-3);
+}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.rule{height:1px;background:var(--kerb);border:0;margin:0}
+
+/* the dot trail — the logo motif, used as the page's connective tissue */
+.trail{display:flex;align-items:center;gap:7px}
+.trail i{
+  width:9px;height:9px;border-radius:50%;flex:none;display:block;
+  border:1.5px solid var(--marking-3);
+}
+.trail i.on{background:var(--sodium);border-color:var(--sodium)}
+.trail i.go{background:var(--signal);border-color:var(--signal)}
+
+.trail-rule{
+  display:flex;align-items:center;gap:14px;margin-block:0;
+}
+.trail-rule::before,.trail-rule::after{
+  content:"";height:1px;background:var(--kerb);flex:1;
+}
+
+/* ---------- masthead ---------- */
+.mast{
+  border-bottom:1px solid var(--kerb);
+  background:
+    radial-gradient(1100px 380px at 12% -40%, rgba(255,122,26,.16), transparent 62%),
+    linear-gradient(180deg,#0E1116,var(--asphalt));
+}
+.mast .wrap{padding-block:56px 44px;display:grid;gap:26px}
+.wordmark{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.wordmark b{
+  font-family:var(--display);font-weight:800;font-size:clamp(30px,6vw,44px);
+  letter-spacing:-.02em;text-transform:uppercase;line-height:1;
+}
+.wordmark .v{
+  font-family:var(--mono);font-size:11px;color:var(--sodium);
+  border:1px solid rgba(255,122,26,.42);border-radius:999px;
+  padding:3px 9px;letter-spacing:.06em;
+}
+.thesis{
+  font-family:var(--display);font-weight:700;
+  font-size:clamp(26px,4.6vw,42px);line-height:1.1;letter-spacing:-.02em;max-width:19ch;
+}
+.thesis em{color:var(--sodium);font-style:normal}
+.sub{color:var(--marking-2);max-width:62ch;font-size:17px}
+
+/* ---------- diagnosis ---------- */
+.diag{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.diag div{border-left:2px solid var(--kerb);padding-left:16px}
+.diag div.hot{border-left-color:var(--sodium)}
+.diag h4{font-size:14px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.diag p{color:var(--marking-2);font-size:15px}
+.diag code{font-family:var(--mono);font-size:12.5px;color:var(--marking);background:var(--kerb-soft);padding:1px 5px;border-radius:4px}
+
+section{padding-block:56px}
+section.band{background:var(--asphalt-2);border-block:1px solid var(--kerb)}
+.sec-head{display:grid;gap:10px;margin-bottom:34px;max-width:70ch}
+.sec-head h2{font-size:clamp(22px,3.4vw,30px);font-weight:800;letter-spacing:-.015em;text-transform:uppercase}
+.sec-head p{color:var(--marking-2)}
+
+/* ---------- foundations ---------- */
+.found{display:grid;gap:34px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.swatches{display:grid;gap:0;border:1px solid var(--kerb);border-radius:10px;overflow:hidden}
+.sw{display:flex;align-items:center;gap:14px;padding:11px 14px;border-bottom:1px solid var(--kerb);background:var(--panel)}
+.sw:last-child{border-bottom:0}
+.sw span.chipc{width:30px;height:30px;border-radius:7px;flex:none;border:1px solid rgba(255,255,255,.14)}
+.sw .nm{font-weight:600;font-size:14.5px;flex:1;min-width:0}
+.sw .nm small{display:block;color:var(--marking-3);font-weight:400;font-size:12.5px}
+.sw .hx{font-family:var(--mono);font-size:12px;color:var(--marking-2)}
+.sw .ct{font-family:var(--mono);font-size:11px;color:var(--signal);white-space:nowrap}
+
+.specimen{border:1px solid var(--kerb);border-radius:10px;background:var(--panel);padding:20px;display:grid;gap:18px}
+.sp-row{display:grid;gap:5px}
+.sp-row .tag{font-family:var(--mono);font-size:11px;color:var(--marking-3)}
+.sp-d{font-family:var(--display);font-weight:800;font-size:30px;letter-spacing:-.01em;text-transform:uppercase;line-height:1.05}
+.sp-e{font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--marking-2)}
+.sp-b{font-family:var(--ui);font-size:17px}
+.sp-m{font-family:var(--mono);font-size:26px;font-weight:500;font-variant-numeric:tabular-nums}
+
+.motif{border:1px solid var(--kerb);border-radius:10px;background:var(--panel);padding:20px;display:grid;gap:16px}
+.motif .demo{display:grid;gap:12px}
+.motif .demo > div{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.motif .cap{font-size:13.5px;color:var(--marking-2)}
+
+/* ---------- screens ---------- */
+.screens{display:grid;gap:64px}
+.screen{display:grid;gap:26px;grid-template-columns:minmax(0,var(--pw,390px)) minmax(240px,1fr);align-items:start}
+@media (max-width:860px){.screen{grid-template-columns:1fr}}
+.notes{display:grid;gap:16px;padding-top:6px}
+.notes .n-title{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.notes h3{font-size:20px;font-weight:800;text-transform:uppercase;letter-spacing:-.005em}
+.notes .file{font-family:var(--mono);font-size:11.5px;color:var(--marking-3)}
+.chg{display:grid;gap:11px;margin:0;padding:0;list-style:none}
+/* Absolute-positioned marker, NOT a grid cell: the li holds mixed inline
+   content (b, code, span) and grid would promote every text node to its
+   own cell, shredding the sentence into columns. */
+.chg li{position:relative;padding-left:20px;font-size:15px;color:var(--marking-2);display:block}
+.chg li::before{
+  content:"";position:absolute;left:0;top:7px;
+  width:9px;height:9px;border-radius:50%;background:var(--sodium);
+}
+.chg li.warn::before{background:var(--flare)}
+.chg li b{color:var(--marking);font-weight:600}
+.chg li code{font-family:var(--mono);font-size:12.5px;color:var(--marking);background:var(--kerb-soft);padding:1px 5px;border-radius:4px}
+.req{
+  display:inline-block;vertical-align:baseline;font-family:var(--mono);font-size:10.5px;color:var(--sodium);
+  border:1px solid rgba(255,122,26,.38);border-radius:4px;padding:0 5px;margin-right:2px;
+}
+
+/* ---------- the phone ---------- */
+.phone{
+  --pw:min(390px,100%);
+  width:var(--pw);
+  border-radius:38px;
+  padding:5px;
+  background:linear-gradient(160deg,#30363F,#14171C 44%,#2A303A);
+  box-shadow:0 26px 60px rgba(0,0,0,.6);
+  justify-self:start;
+}
+.glass{
+  border-radius:33px;overflow:hidden;background:var(--a-bg);color:var(--a-text);
+  display:flex;flex-direction:column;min-height:760px;position:relative;
+  font-family:var(--ui);
+}
+.stat{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:11px 22px 4px;font-family:var(--mono);font-size:11.5px;color:var(--a-text);font-weight:500;
+}
+.stat .dots-r{display:flex;gap:4px;align-items:center}
+.stat .dots-r span{width:13px;height:9px;border-radius:2px;background:currentColor;opacity:.85;display:block}
+.stat .dots-r span.b{width:16px}
+
+.appbar{display:flex;align-items:center;gap:12px;padding:8px 18px 12px}
+.appbar .ttl{font-family:var(--display);font-weight:800;font-size:22px;text-transform:uppercase;letter-spacing:-.01em;flex:1;min-width:0}
+.appbar .ttl.sm{font-size:15px;letter-spacing:.02em}
+.ibtn{
+  width:34px;height:34px;border-radius:50%;background:var(--a-chip);
+  display:grid;place-items:center;flex:none;color:var(--a-text);
+}
+.ibtn svg{width:17px;height:17px;display:block}
+.scroller{flex:1;overflow:hidden;padding:0 18px 18px;display:grid;gap:22px;align-content:start}
+.scroller.flush{padding:0}
+
+/* app primitives */
+.card{background:var(--a-surface);border:1px solid var(--a-line);border-radius:16px}
+.pill-live{
+  display:inline-flex;align-items:center;gap:6px;background:var(--a-signal);
+  color:#04180E;font-family:var(--display);font-weight:800;font-size:10.5px;
+  letter-spacing:.16em;text-transform:uppercase;padding:3px 9px 3px 7px;border-radius:5px;
+}
+[data-app="day"] .pill-live{color:#FFFFFF}
+.pill-live i{width:6px;height:6px;border-radius:50%;background:currentColor;display:block;animation:beat 1.8s ease-in-out infinite}
+@keyframes beat{0%,100%{opacity:1}50%{opacity:.28}}
+@media (prefers-reduced-motion:reduce){.pill-live i{animation:none}}
+
+/* car name as a plate — mono, boxed, uppercase. Uses the EXISTING carName field. */
+.plate{
+  display:inline-flex;align-items:center;font-family:var(--mono);font-weight:500;
+  font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;
+  border:1px solid var(--a-line);border-radius:4px;padding:1px 6px;color:var(--a-text-2);
+  background:var(--a-raised);white-space:nowrap;
+}
+.plate.me{border-color:var(--a-accent);color:var(--a-accent)}
+
+.av{
+  width:38px;height:38px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:.02em;
+  background:var(--a-raised);color:var(--a-text-2);border:1px solid var(--a-line);
+}
+.av.on{background:var(--a-signal);color:#04180E;border-color:transparent}
+[data-app="day"] .av.on{color:#FFFFFF}
+.av.me{background:var(--a-accent);color:var(--a-on-accent);border-color:transparent}
+.stack{display:flex;align-items:center}
+.stack .av{width:28px;height:28px;font-size:11px;margin-left:-9px;border:2px solid var(--a-surface)}
+.stack .av:first-child{margin-left:0}
+.stack .more{
+  margin-left:8px;font-family:var(--mono);font-size:12px;color:var(--a-text-3);
+}
+
+.btn{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  min-height:50px;border-radius:13px;background:var(--a-accent);color:var(--a-on-accent);
+  font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;
+}
+.btn.ghost{background:var(--a-chip);color:var(--a-text)}
+.btn.sm{min-height:38px;font-size:12px;border-radius:10px;padding-inline:14px}
+.btn svg{width:17px;height:17px}
+
+.field{
+  border:1px solid var(--a-line);background:var(--a-surface);border-radius:12px;
+  padding:11px 14px;display:grid;gap:3px;
+}
+.field .lb{font-family:var(--display);font-weight:700;font-size:10px;letter-spacing:.17em;text-transform:uppercase;color:var(--a-text-3)}
+.field .vl{font-family:var(--mono);font-size:17px;color:var(--a-text)}
+.field .vl.ph{color:var(--a-text-3)}
+.field.hero .vl{font-size:23px;letter-spacing:.06em}
+
+.seg{display:flex;background:var(--a-chip);border-radius:10px;padding:3px;gap:3px}
+.seg div{
+  flex:1;text-align:center;padding:7px 0;border-radius:8px;font-size:13px;font-weight:600;color:var(--a-text-2);
+}
+.seg div.sel{background:var(--a-surface);color:var(--a-text);box-shadow:var(--a-shadow)}
+
+.sec-lbl{
+  font-family:var(--display);font-weight:700;font-size:10.5px;letter-spacing:.19em;
+  text-transform:uppercase;color:var(--a-text-3);display:flex;justify-content:space-between;align-items:center;
+}
+.stkbar{
+  position:absolute;left:0;right:0;bottom:0;padding:12px 18px calc(16px + env(safe-area-inset-bottom,0px));
+  background:linear-gradient(180deg,transparent,var(--a-bg) 34%);display:grid;gap:9px;
+}
+
+/* --- run cards: weight by state, not a uniform list row --- */
+.hero-run{
+  background:var(--a-surface);border:1px solid var(--a-line);border-radius:18px;overflow:hidden;
+  box-shadow:var(--a-shadow);
+}
+.hero-run .strip{height:96px;position:relative;background:var(--a-map);display:block}
+.hero-run .strip svg{display:block;width:100%;height:100%}
+.hero-run .body{padding:14px 16px 16px;display:grid;gap:11px}
+.hero-run .nm{font-family:var(--display);font-weight:800;font-size:20px;letter-spacing:-.01em;line-height:1.15}
+.hero-run .rt{font-size:13.5px;color:var(--a-text-2);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.hero-run .rt b{color:var(--a-text);font-weight:600}
+.count{display:flex;align-items:baseline;gap:8px}
+.count .big{font-family:var(--mono);font-weight:700;font-size:26px;letter-spacing:-.02em;color:var(--a-text)}
+.count .lbl{font-size:13px;color:var(--a-text-2)}
+
+.run-card{
+  background:var(--a-surface);border:1px solid var(--a-line);border-radius:14px;
+  padding:14px 16px;display:grid;gap:9px;
+}
+.run-card .top{display:flex;align-items:flex-start;gap:10px}
+.run-card .nm{font-family:var(--display);font-weight:700;font-size:16.5px;flex:1;min-width:0;line-height:1.2}
+.run-card .when{font-family:var(--mono);font-size:12px;color:var(--a-accent);white-space:nowrap;letter-spacing:.02em}
+.run-card .rt{font-size:13px;color:var(--a-text-2);display:flex;align-items:center;gap:6px}
+.run-card .bot{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.going{
+  display:inline-flex;align-items:center;gap:5px;font-family:var(--display);font-weight:700;
+  font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--a-accent);
+  border:1px solid var(--a-accent);border-radius:4px;padding:2px 6px;
+}
+.arrow{color:var(--a-text-3);flex:none}
+.arrow svg{width:12px;height:12px;display:block}
+
+/* past runs collapse to a log line, not a card */
+.log{display:grid;gap:0;border-top:1px solid var(--a-line)}
+.log .ln{
+  display:flex;align-items:center;gap:10px;padding:11px 2px;border-bottom:1px solid var(--a-line);
+  font-size:14px;color:var(--a-text-2);
+}
+.log .ln b{color:var(--a-text-2);font-weight:600;flex:1;min-width:0}
+.log .ln .d{font-family:var(--mono);font-size:11.5px;color:var(--a-text-3)}
+
+/* --- roll call --- */
+.route{background:var(--a-surface);border:1px solid var(--a-line);border-radius:14px;padding:14px 16px;display:grid;gap:0}
+.leg{display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:center;padding:6px 0}
+.leg .mk{display:grid;place-items:center;position:relative;height:100%}
+.leg .mk b{width:11px;height:11px;border-radius:50%;background:var(--a-accent);display:block;z-index:1}
+.leg .mk b.fin{background:var(--a-text);border-radius:2px}
+.legline{grid-column:1;display:grid;place-items:center;height:22px}
+.legline i{width:0;height:100%;border-left:2px dotted var(--a-line);display:block}
+.leg .tx{display:grid;gap:1px;min-width:0}
+.leg .tx .p{font-weight:600;font-size:15px;color:var(--a-text)}
+.leg .tx .k{font-family:var(--display);font-weight:700;font-size:9.5px;letter-spacing:.17em;text-transform:uppercase;color:var(--a-text-3)}
+
+.board{display:grid;gap:0;border-radius:14px;overflow:hidden;border:1px solid var(--a-line)}
+.pr{
+  display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;
+  padding:11px 14px;background:var(--a-surface);border-bottom:1px solid var(--a-line);
+  border-left:3px solid transparent;
+}
+.pr:last-child{border-bottom:0}
+.pr.in{border-left-color:var(--a-signal)}
+.pr .who{display:grid;gap:3px;min-width:0}
+.pr .who .nm{font-weight:600;font-size:15px;display:flex;align-items:center;gap:6px}
+.pr .who .nm span{color:var(--a-text-3);font-weight:400;font-size:13px}
+.pr .st{text-align:right;display:grid;gap:2px;justify-items:end}
+.pr .st .eta{font-family:var(--mono);font-weight:700;font-size:19px;color:var(--a-text);letter-spacing:-.02em}
+.pr .st .tag{font-size:11px;color:var(--a-text-3);display:flex;align-items:center;gap:4px}
+.pr .st .tag svg{width:12px;height:12px}
+.pr .st .tag.ok{color:var(--a-signal);font-weight:600}
+
+/* --- live map --- */
+.mapwrap{position:absolute;inset:0;background:var(--a-map)}
+.mapwrap svg{width:100%;height:100%;display:block}
+.overbar{
+  position:absolute;top:0;left:0;right:0;z-index:3;
+  padding:10px 16px;display:flex;align-items:center;gap:10px;
+}
+.gbtn{
+  width:36px;height:36px;border-radius:50%;background:var(--a-glass);
+  border:1px solid var(--a-line);backdrop-filter:blur(14px);
+  display:grid;place-items:center;color:var(--a-text);flex:none;box-shadow:var(--a-shadow);
+}
+.gbtn svg{width:17px;height:17px}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:4;
+  background:var(--a-glass);backdrop-filter:blur(22px);
+  border-top:1px solid var(--a-line);border-radius:22px 22px 0 0;
+  padding:8px 16px calc(16px + env(safe-area-inset-bottom,0px));display:grid;gap:13px;
+  box-shadow:0 -12px 40px rgba(0,0,0,.45);
+}
+[data-app="day"] .sheet{box-shadow:0 -10px 34px rgba(13,17,23,.16)}
+.grab{width:38px;height:4px;border-radius:2px;background:var(--a-line);justify-self:center}
+.ahead{display:flex;align-items:flex-end;gap:11px}
+.ahead .num{font-family:var(--mono);font-weight:700;font-size:40px;line-height:.9;letter-spacing:-.04em;color:var(--a-text)}
+.ahead .un{font-family:var(--mono);font-size:16px;color:var(--a-text-2);padding-bottom:3px}
+.ahead .of{font-size:13px;color:var(--a-text-2);padding-bottom:4px;flex:1;min-width:0;line-height:1.3}
+.ahead .of b{color:var(--a-text);font-weight:600}
+.crewstrip{display:flex;gap:8px;overflow:hidden;padding-bottom:2px}
+.cchip{
+  display:flex;align-items:center;gap:7px;padding:5px 11px 5px 5px;border-radius:999px;
+  background:var(--a-chip);flex:none;border:1px solid transparent;
+}
+.cchip.sel{border-color:var(--a-accent)}
+.cchip .av{width:26px;height:26px;font-size:10.5px}
+.cchip .tx{display:grid;gap:0}
+.cchip .tx b{font-size:12.5px;font-weight:600;line-height:1.25}
+.cchip .tx i{font-family:var(--mono);font-style:normal;font-size:10.5px;color:var(--a-text-2);line-height:1.25}
+.shareline{
+  display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--a-text-2);
+}
+.shareline b{width:7px;height:7px;border-radius:50%;background:var(--a-signal);display:block;flex:none}
+
+/* map annotations */
+.mk-dot{position:absolute;transform:translate(-50%,-50%);z-index:2;display:grid;justify-items:center;gap:3px}
+.mk-dot u{
+  width:16px;height:16px;border-radius:50%;display:block;border:2.5px solid #fff;
+  box-shadow:0 2px 6px rgba(0,0,0,.5);
+}
+.mk-dot u.me{width:20px;height:20px;background:var(--a-accent)}
+.mk-dot u.ar{background:var(--a-signal)}
+.mk-dot u.ot{background:var(--a-beam)}
+.mk-dot u.st{background:#8A93A1}
+.mk-dot em{
+  font-style:normal;font-family:var(--mono);font-size:10px;font-weight:500;
+  background:var(--a-glass);color:var(--a-text);padding:1.5px 5px;border-radius:4px;white-space:nowrap;
+  border:1px solid var(--a-line);
+}
+.mk-pin{position:absolute;transform:translate(-50%,-100%);z-index:2;display:grid;justify-items:center;gap:3px}
+.mk-pin em{
+  font-style:normal;font-family:var(--display);font-weight:700;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+  background:var(--a-glass);color:var(--a-text);padding:2px 6px;border-radius:4px;white-space:nowrap;border:1px solid var(--a-line);
+}
+.mk-pin u{
+  width:26px;height:26px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);
+  display:grid;place-items:center;border:2px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.5);
+}
+.mk-pin u svg{transform:rotate(45deg);width:13px;height:13px}
+.mk-pin u.meet{background:var(--a-accent);color:var(--a-on-accent)}
+.mk-pin u.dest{background:var(--a-text);color:var(--a-bg)}
+
+/* --- the live dock: the single biggest IA change --- */
+.dock{
+  position:absolute;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:5;
+  background:var(--a-glass);backdrop-filter:blur(18px);
+  border:1px solid var(--a-line);border-radius:16px;padding:10px 10px 10px 13px;
+  display:flex;align-items:center;gap:11px;box-shadow:var(--a-shadow);
+}
+.dock .tx{flex:1;min-width:0;display:grid;gap:2px}
+.dock .tx .l1{display:flex;align-items:center;gap:7px}
+.dock .tx .l1 b{font-family:var(--display);font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dock .tx .l2{font-family:var(--mono);font-size:11px;color:var(--a-text-2)}
+
+/* --- garage --- */
+.gg{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.gcard{
+  background:var(--a-surface);border:1px solid var(--a-line);border-radius:14px;padding:13px;
+  display:grid;gap:9px;align-content:start;min-height:104px;
+}
+.gcard .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.gcard .nm{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.2}
+.gcard .mt{font-family:var(--mono);font-size:11px;color:var(--a-text-3)}
+.gcard.add{border-style:dashed;place-content:center;justify-items:center;color:var(--a-text-3);gap:6px}
+.gcard.add .nm{color:var(--a-text-2);font-size:13.5px}
+.idrow{display:flex;align-items:center;gap:14px;padding:4px 0 2px}
+.idrow .av{width:62px;height:62px;font-size:23px}
+.idrow .tx{display:grid;gap:2px;min-width:0}
+.idrow .tx h4{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:-.01em}
+.idrow .tx p{font-family:var(--mono);font-size:12px;color:var(--a-text-2)}
+.quiet{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:13px 15px;border:1px solid var(--a-line);border-radius:12px;color:var(--a-flare);
+  font-weight:600;font-size:14.5px;background:var(--a-surface);
+}
+
+/* --- join screen --- */
+.join-mark{display:grid;gap:14px;padding-top:26px}
+.join-mark .wm{font-family:var(--display);font-weight:800;font-size:46px;letter-spacing:-.025em;text-transform:uppercase;line-height:1}
+.join-h{font-family:var(--display);font-weight:800;font-size:30px;line-height:1.08;letter-spacing:-.02em;max-width:12ch}
+.join-h em{font-style:normal;color:var(--a-accent)}
+.promises{display:grid;gap:9px;margin:0;padding:0;list-style:none}
+.promises li{position:relative;padding-left:17px;font-size:14px;color:var(--a-text-2);display:block}
+.promises li::before{content:"";position:absolute;left:0;top:7px;width:7px;height:7px;border-radius:50%;background:var(--a-accent)}
+.promises li b{color:var(--a-text);font-weight:600}
+
+/* ---------- theme control ---------- */
+.ctl{
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:20;
+  background:rgba(11,13,17,.9);backdrop-filter:blur(14px);border-bottom:1px solid var(--kerb);
+}
+.ctl .wrap{display:flex;align-items:center;gap:14px;padding-block:11px;flex-wrap:wrap}
+.ctl .lb{font-family:var(--display);font-weight:700;font-size:10.5px;letter-spacing:.19em;text-transform:uppercase;color:var(--marking-3)}
+.toggle{display:flex;gap:3px;background:var(--kerb-soft);border:1px solid var(--kerb);border-radius:9px;padding:3px}
+.toggle button{
+  font-family:var(--display);font-weight:700;font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--marking-2);background:none;border:0;border-radius:6px;padding:6px 15px;cursor:pointer;
+}
+.toggle button[aria-pressed="true"]{background:var(--sodium);color:#150A02}
+.toggle button:focus-visible{outline:2px solid var(--sodium);outline-offset:2px}
+.ctl .hint{font-size:13px;color:var(--marking-3);margin-left:auto}
+
+/* ---------- impact table ---------- */
+.tblwrap{overflow-x:auto;border:1px solid var(--kerb);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:600px;background:var(--panel)}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--kerb);font-size:14.5px;vertical-align:top}
+th{font-family:var(--display);font-weight:700;font-size:10.5px;letter-spacing:.17em;text-transform:uppercase;color:var(--marking-3)}
+tr:last-child td{border-bottom:0}
+td code{font-family:var(--mono);font-size:12.5px;color:var(--marking)}
+td.eff{white-space:nowrap;font-family:var(--mono);font-size:12px}
+.eff.hi{color:var(--flare)}
+.eff.md{color:var(--sodium)}
+.eff.lo{color:var(--signal)}
+
+/* ---------- decisions ---------- */
+.asks{display:grid;gap:14px;counter-reset:q}
+.ask{
+  border:1px solid var(--kerb);border-radius:10px;background:var(--panel);padding:16px 18px;
+  display:grid;gap:6px;
+}
+.ask h4{font-size:16px;font-weight:700;display:flex;gap:10px;align-items:baseline}
+.ask h4::before{
+  counter-increment:q;content:counter(q,decimal-leading-zero);
+  font-family:var(--mono);font-size:12px;color:var(--sodium);font-weight:500;
+}
+.ask p{color:var(--marking-2);font-size:14.5px}
+.ask .rec{font-size:13.5px;color:var(--marking)}
+.ask .rec b{color:var(--signal);font-weight:600}
+
+footer{border-top:1px solid var(--kerb);padding-block:34px;color:var(--marking-3);font-size:13.5px}
+footer .wrap{display:grid;gap:8px}
+</style>
+
+<header class="mast">
+  <div class="wrap">
+    <div class="wordmark">
+      <b>Runs</b>
+      <span class="trail" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span>
+      <span class="v">NIGHT BUILD · v1 PROPOSAL</span>
+    </div>
+    <h1 class="thesis">Stop looking like Settings. <em>Start looking like 11pm on the Second Link.</em></h1>
+    <p class="sub">A redesign proposal for <b>Runs</b> — six screens, a new token system, and one structural change to the navigation. Nothing here breaches <code style="font-family:var(--mono);font-size:13px">runs-v1-spec.md</code>: no speed, no leader, no chat, no new backend fields. Review it, then I build it in <code style="font-family:var(--mono);font-size:13px">app/src/ui/</code>.</p>
+  </div>
+</header>
+
+<div class="ctl">
+  <div class="wrap">
+    <span class="lb">App theme</span>
+    <div class="toggle" role="group" aria-label="Preview app theme">
+      <button type="button" id="t-night" aria-pressed="true">Night</button>
+      <button type="button" id="t-day" aria-pressed="false">Day</button>
+    </div>
+    <span class="hint">Both ship. Night is the default — you drive at night.</span>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">The read</span>
+      <h2>Three problems, only one of them is paint</h2>
+    </div>
+    <div class="diag">
+      <div class="hot">
+        <h4>No identity</h4>
+        <p>Every surface is <code>PlatformColor("systemGroupedBackground")</code> plus an orange tint. The craft is real — you documented WCAG ratios in <code>theme.ts</code> — but strip the tint and it's a utilities app.</p>
+      </div>
+      <div class="hot">
+        <h4>The map is buried</h4>
+        <p>Your spec says "glanceable in under a second." <code>LiveMapScreen</code> is two taps deep behind <code>RunDetailScreen</code>. That's the fix that matters most, and it isn't a colour.</p>
+      </div>
+      <div class="hot">
+        <h4>Nothing says cars</h4>
+        <p>A live run with six cars on the road and a meet from three weeks ago render as the same <code>ListRow</code>. <code>carName</code> is a grey subtitle. Hierarchy is doing no work.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Foundations</span>
+      <h2>Sodium, asphalt, road markings</h2>
+      <p>Palette pulled from what a night drive actually looks like — sodium-vapour street light on wet tarmac, signage green, headlight white. Your existing brand orange survives, brightened for a dark ground. Contrast ratios computed against the surface each colour sits on, the same way <code style="font-family:var(--mono);font-size:13.5px">theme.ts</code> already documents them.</p>
+    </div>
+    <div class="found">
+      <div class="swatches">
+        <div class="sw"><span class="chipc" style="background:#0B0D11"></span><span class="nm">Asphalt<small>App ground, night</small></span><span class="hx">#0B0D11</span></div>
+        <div class="sw"><span class="chipc" style="background:#151920"></span><span class="nm">Panel<small>Cards, rows, sheets</small></span><span class="hx">#151920</span></div>
+        <div class="sw"><span class="chipc" style="background:#FF7A1A"></span><span class="nm">Sodium<small>Accent — one per screen</small></span><span class="hx">#FF7A1A</span><span class="ct">6.4:1</span></div>
+        <div class="sw"><span class="chipc" style="background:#3FD98B"></span><span class="nm">Signal<small>Arrived · live · sharing</small></span><span class="hx">#3FD98B</span><span class="ct">9.8:1</span></div>
+        <div class="sw"><span class="chipc" style="background:#5AA9FF"></span><span class="nm">Beam<small>On the way</small></span><span class="hx">#5AA9FF</span><span class="ct">6.9:1</span></div>
+        <div class="sw"><span class="chipc" style="background:#EDF0F5"></span><span class="nm">Marking<small>Primary text</small></span><span class="hx">#EDF0F5</span><span class="ct">16.1:1</span></div>
+        <div class="sw"><span class="chipc" style="background:#98A1AF"></span><span class="nm">Marking 2<small>Secondary text</small></span><span class="hx">#98A1AF</span><span class="ct">6.1:1</span></div>
+        <div class="sw"><span class="chipc" style="background:#C2500A"></span><span class="nm">Sodium / Day<small>Accent on white</small></span><span class="hx">#C2500A</span><span class="ct">5.4:1</span></div>
+      </div>
+
+      <div class="specimen">
+        <div class="sp-row">
+          <span class="tag">Archivo 800 · display · uppercase, -1% tracking</span>
+          <span class="sp-d">Skudai Sunday Run</span>
+        </div>
+        <div class="sp-row">
+          <span class="tag">Archivo 700 · eyebrow · +20% tracking</span>
+          <span class="sp-e">On the way · 3</span>
+        </div>
+        <div class="sp-row">
+          <span class="tag">Barlow 400/600 · UI text</span>
+          <span class="sp-b">Meeting at Petronas Skudai, then running up to Gunung Pulai.</span>
+        </div>
+        <div class="sp-row">
+          <span class="tag">JetBrains Mono 700 · every number, tabular</span>
+          <span class="sp-m">6 MIN · 1.2 KM · 07:14</span>
+        </div>
+        <div class="sp-row">
+          <span class="tag">Why not SF Pro</span>
+          <span style="font-size:14px;color:var(--marking-2)">Archivo is a signage grotesque and Barlow is drawn from road signage — both read as <em>transport</em>, not <em>operating system</em>. Numbers move to mono so ETA and distance stay readable at a glance and never reflow as digits change.</span>
+        </div>
+      </div>
+
+      <div class="motif">
+        <span class="eyebrow">The motif</span>
+        <h3 style="font-size:19px;font-weight:800;text-transform:uppercase">The dot trail</h3>
+        <p class="cap">It's already in your logo, and <code style="font-family:var(--mono);font-size:12.5px">ArrivalDots</code> already draws it. Promote it to the whole system: one dot per person, filled when they're at the meetup. It's the convoy, strung out along the road.</p>
+        <div class="demo">
+          <div><span class="trail"><i class="go"></i><i class="go"></i><i class="go"></i><i class="go"></i><i></i><i></i><i></i></span><span class="cap">4 of 7 arrived</span></div>
+          <div><span class="trail"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="cap">2 of 5 — meetup still filling</span></div>
+          <div><span class="trail"><i class="go"></i><i class="go"></i><i class="go"></i><i class="go"></i><i class="go"></i></span><span class="cap">Everyone in. Run can start.</span></div>
+        </div>
+        <p class="cap" style="border-top:1px solid var(--kerb);padding-top:13px">State never rides on colour alone — filled vs. hollow carries it, so it survives colour-blindness and a sun-blasted windscreen.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">The screens</span>
+      <h2>Six surfaces, in the order you meet them</h2>
+      <p>Real content throughout — your group's actual runs, your actual strings, your actual spec requirement IDs. Frames are live HTML, so flip the Night/Day control above and every screen follows.</p>
+    </div>
+
+    <div class="screens">
+
+      <!-- ============ 1. JOIN ============ -->
+      <article class="screen">
+        <div class="phone">
+          <div class="glass" data-appskin>
+            <div class="stat"><span>21:47</span><span class="dots-r"><span></span><span></span><span class="b"></span></span></div>
+            <div class="scroller" style="padding-top:8px">
+              <div class="join-mark">
+                <span class="trail" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span>
+                <span class="wm">Runs</span>
+              </div>
+              <h2 class="join-h">Set a place.<br><em>Go.</em></h2>
+              <ul class="promises">
+                <li><span><b>Location only during a run.</b> It starts when the run goes live and stops the second it ends.</span></li>
+                <li><span><b>Speed is never recorded.</b> Not stored, not sent, not shown. Anywhere.</span></li>
+                <li><span><b>Invite only.</b> No signup, no discovery, no strangers.</span></li>
+              </ul>
+              <div style="display:grid;gap:10px">
+                <div class="field hero">
+                  <span class="lb">Invite code</span>
+                  <span class="vl">RUNS-DE94E937</span>
+                </div>
+                <div class="field">
+                  <span class="lb">Your name</span>
+                  <span class="vl ph" style="font-family:var(--ui);font-size:16px">As the group knows you</span>
+                </div>
+              </div>
+            </div>
+            <div class="stkbar">
+              <div class="btn">Join the group</div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="n-title"><h3>Join</h3><span class="file">src/screens/InviteScreen.tsx</span></div>
+          <ul class="chg">
+            <li><b>Kills the Apple welcome pattern.</b> The 80px icon, centred large title and three icon-and-paragraph feature rows are literally the iOS onboarding template. Replaced with the wordmark, the trail, and a two-word thesis lifted from your own spec: <em>"set a place and go."</em></li>
+            <li><b>The invite code becomes the hero.</b> Mono, tracked out, 23px — it's the one thing the screen exists for. Name drops to a normal field.</li>
+            <li><b>Promises, not features.</b> <span class="req">C1</span><span class="req">C4</span> Three lines that answer the only question a 50-person WhatsApp group actually asks: <em>is this thing tracking me?</em> Your hard constraints are the strongest marketing you have — say them out loud.</li>
+            <li class="warn"><b>Risk I'm taking:</b> no screenshots, no app icon. If you want reassurance imagery for the less technical half of the group, this is where it goes — say the word.</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ============ 2. RUNS HOME ============ -->
+      <article class="screen">
+        <div class="phone">
+          <div class="glass" data-appskin>
+            <div class="stat"><span>07:18</span><span class="dots-r"><span></span><span></span><span class="b"></span></span></div>
+            <div class="appbar">
+              <span class="ttl">Runs</span>
+              <span class="ibtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0" stroke-linecap="round"/></svg></span>
+              <span class="ibtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+            </div>
+            <div class="scroller">
+
+              <div class="hero-run">
+                <div class="strip">
+                  <svg viewBox="0 0 390 96" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                    <rect width="390" height="96" fill="var(--a-map)"/>
+                    <path d="M0,74 C60,64 110,88 170,79 C240,68 290,92 390,80 L390,96 L0,96 Z" fill="var(--a-map-water)"/>
+                    <g stroke="var(--a-map-road)" fill="none" stroke-linecap="round">
+                      <path d="M-10,20 C70,29 120,8 200,19 C270,28 320,12 400,20" stroke-width="7"/>
+                      <path d="M42,-10 C50,26 32,54 54,100" stroke-width="4"/>
+                      <path d="M300,-6 C292,28 320,48 306,100" stroke-width="4"/>
+                      <path d="M0,52 C90,46 150,64 240,54 C300,48 340,58 400,52" stroke-width="3"/>
+                    </g>
+                    <path d="M58,62 C104,54 138,32 196,29 C250,26 284,44 332,34" fill="none" stroke="var(--a-accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.5 7"/>
+                    <circle cx="332" cy="34" r="6" fill="var(--a-accent)" stroke="#fff" stroke-width="2"/>
+                    <circle cx="276" cy="41" r="5" fill="var(--a-signal)" stroke="#fff" stroke-width="1.8"/>
+                    <circle cx="238" cy="31" r="5" fill="var(--a-signal)" stroke="#fff" stroke-width="1.8"/>
+                    <circle cx="176" cy="31" r="5" fill="var(--a-beam)" stroke="#fff" stroke-width="1.8"/>
+                    <circle cx="112" cy="53" r="5" fill="var(--a-beam)" stroke="#fff" stroke-width="1.8"/>
+                    <circle cx="58" cy="62" r="5" fill="var(--a-beam)" stroke="#fff" stroke-width="1.8"/>
+                  </svg>
+                </div>
+                <div class="body">
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <span class="pill-live"><i></i>Live</span>
+                    <span class="mono" style="font-size:11.5px;color:var(--a-text-3)">STARTED 07:12</span>
+                  </div>
+                  <div class="nm">Skudai Sunday Run</div>
+                  <div class="rt"><b>Petronas Skudai</b> <span style="color:var(--a-text-3)">&#8594;</span> <b>Gunung Pulai</b></div>
+                  <div class="count">
+                    <span class="big">4/7</span>
+                    <span class="lbl">arrived</span>
+                    <span class="trail" style="margin-left:auto" aria-hidden="true"><i class="go"></i><i class="go"></i><i class="go"></i><i class="go"></i><i></i><i></i><i></i></span>
+                  </div>
+                  <div class="btn" style="margin-top:2px">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4L3 6.5v13L9 17l6 2.5 6-2.5v-13L15 7z"/><path d="M9 4v13M15 7v12.5"/></svg>
+                    Open live map
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:grid;gap:11px">
+                <div class="sec-lbl"><span>Upcoming</span><span class="mono" style="font-size:11px">2</span></div>
+                <div class="run-card">
+                  <div class="top">
+                    <span class="nm">Second Link Breakfast</span>
+                    <span class="when">SUN 07:00</span>
+                  </div>
+                  <div class="rt">Tuas Checkpoint <span style="color:var(--a-text-3)">&#8594;</span> Kulai</div>
+                  <div class="bot">
+                    <span class="stack">
+                      <span class="av me">IT</span><span class="av">WJ</span><span class="av">AM</span><span class="av">SR</span>
+                      <span class="more">+8 going</span>
+                    </span>
+                    <span class="going">You're in</span>
+                  </div>
+                </div>
+                <div class="run-card">
+                  <div class="top">
+                    <span class="nm">Genting Night Drive</span>
+                    <span class="when">26 SEP 21:30</span>
+                  </div>
+                  <div class="rt">Gohtong Jaya <span style="color:var(--a-text-3)">&#8594;</span> Genting Peak</div>
+                  <div class="bot">
+                    <span class="stack">
+                      <span class="av">WJ</span><span class="av">KH</span><span class="av">DN</span>
+                      <span class="more">+5 going</span>
+                    </span>
+                    <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:grid;gap:9px">
+                <div class="sec-lbl"><span>Past</span></div>
+                <div class="log">
+                  <div class="ln"><b>Kopitiam Run</b><span class="d">12 SEP · 9 WENT</span></div>
+                  <div class="ln"><b>Desaru Coast Loop</b><span class="d">31 AUG · 14 WENT</span></div>
+                  <div class="ln"><b>Pulai Springs Meet</b><span class="d">17 AUG · 6 WENT</span></div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="n-title"><h3>Runs</h3><span class="file">src/screens/RunListScreen.tsx</span></div>
+          <ul class="chg">
+            <li><b>Weight follows state.</b> <span class="req">R1</span> One <code>ListRow</code> for all three states is why nothing stands out. Now: a live run is a hero card with a map strip showing the actual convoy; upcoming is a compact card; past collapses to a log line. <code>groupRuns()</code> already sorts this — the sections just render differently.</li>
+            <li><b>The live run shows the convoy, not a count.</b> Six dots on a route strip beats "4 of 7 arrived" as text. You read it in a glance at a traffic light, which is the actual use case.</li>
+            <li><b>Avatar stacks replace "12 going".</b> <span class="req">R2</span> A 50-person group wants to see <em>who</em>. Same data, already in <code>run.attendees</code>.</li>
+            <li><b>Times go mono and uppercase.</b> <code>SUN 07:00</code> in tabular numerals — scannable down the column, never reflows.</li>
+            <li class="warn"><b>Cost, be honest about it:</b> the hero map strip needs a static MapLibre snapshot or a tiny non-interactive <code>&lt;Map&gt;</code>. That's real work and a tile fetch on the list screen. If you'd rather not, the strip degrades to the dot trail on a flat ground and the card still works.</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ============ 3. ROLL CALL ============ -->
+      <article class="screen">
+        <div class="phone">
+          <div class="glass" data-appskin>
+            <div class="stat"><span>07:26</span><span class="dots-r"><span></span><span></span><span class="b"></span></span></div>
+            <div class="appbar">
+              <span class="ibtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+              <span class="ttl sm" style="flex:1"></span>
+              <span class="ibtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M8.5 7.5L12 4l3.5 3.5"/><path d="M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/></svg></span>
+            </div>
+            <div class="scroller" style="gap:18px">
+              <div style="display:grid;gap:7px">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <span class="pill-live"><i></i>Live</span>
+                  <span class="mono" style="font-size:11.5px;color:var(--a-text-3)">STARTED 07:12 · YOUR RUN</span>
+                </div>
+                <h2 style="font-family:var(--display);font-weight:800;font-size:27px;line-height:1.1;letter-spacing:-.02em">Skudai Sunday Run</h2>
+              </div>
+
+              <div class="route">
+                <div class="leg">
+                  <span class="mk"><b></b></span>
+                  <span class="tx"><span class="k">Meetup</span><span class="p">Petronas Skudai</span></span>
+                  <span class="btn ghost sm"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l8.2 18.2a.8.8 0 0 1-1.1 1L12 18.4l-7.1 3.3a.8.8 0 0 1-1.1-1z"/></svg>Waze</span>
+                </div>
+                <div class="legline"><i></i></div>
+                <div class="leg">
+                  <span class="mk"><b class="fin"></b></span>
+                  <span class="tx"><span class="k">Destination</span><span class="p">Gunung Pulai</span></span>
+                  <span class="btn ghost sm"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l8.2 18.2a.8.8 0 0 1-1.1 1L12 18.4l-7.1 3.3a.8.8 0 0 1-1.1-1z"/></svg>Waze</span>
+                </div>
+              </div>
+
+              <div style="display:flex;align-items:flex-end;gap:13px;padding:2px 2px 0">
+                <span class="mono" style="font-weight:700;font-size:44px;line-height:.85;letter-spacing:-.04em">4<span style="color:var(--a-text-3)">/7</span></span>
+                <div style="display:grid;gap:6px;padding-bottom:3px">
+                  <span style="font-family:var(--display);font-weight:700;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--a-text-2)">Arrived</span>
+                  <span class="trail" aria-hidden="true"><i class="go"></i><i class="go"></i><i class="go"></i><i class="go"></i><i></i><i></i><i></i></span>
+                </div>
+              </div>
+
+              <div style="display:grid;gap:9px">
+                <div class="sec-lbl"><span>At the meetup</span><span class="mono" style="font-size:11px">4</span></div>
+                <div class="board">
+                  <div class="pr in">
+                    <span class="av me">IT</span>
+                    <span class="who"><span class="nm">Isaac <span>(You)</span></span><span class="plate me">GR86</span></span>
+                    <span class="st"><span class="tag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6"/></svg>Arrived</span><span class="mono" style="font-size:11px;color:var(--a-text-3)">07:12</span></span>
+                  </div>
+                  <div class="pr in">
+                    <span class="av on">WJ</span>
+                    <span class="who"><span class="nm">Wei Jie</span><span class="plate">Civic FK8</span></span>
+                    <span class="st"><span class="tag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6"/></svg>Arrived</span><span class="mono" style="font-size:11px;color:var(--a-text-3)">07:14</span></span>
+                  </div>
+                  <div class="pr in">
+                    <span class="av on">KH</span>
+                    <span class="who"><span class="nm">Kah Hoe</span><span class="plate">Swift Sport</span></span>
+                    <span class="st"><span class="tag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6"/></svg>Arrived</span><span class="mono" style="font-size:11px;color:var(--a-text-3)">07:19</span></span>
+                  </div>
+                  <div class="pr in">
+                    <span class="av on">DN</span>
+                    <span class="who"><span class="nm">Danish</span><span class="plate">Riding along</span></span>
+                    <span class="st"><span class="tag ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6"/></svg>Arrived</span><span class="mono" style="font-size:11px;color:var(--a-text-3)">07:23</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:grid;gap:9px">
+                <div class="sec-lbl"><span>On the way</span><span class="mono" style="font-size:11px">3</span></div>
+                <div class="board">
+                  <div class="pr">
+                    <span class="av">AM</span>
+                    <span class="who"><span class="nm">Amirul</span><span class="plate">Mazda 3</span></span>
+                    <span class="st"><span class="eta">6 min</span><span class="tag">2.4 km out</span></span>
+                  </div>
+                  <div class="pr">
+                    <span class="av">SR</span>
+                    <span class="who"><span class="nm">Sarah</span><span class="plate">Jazz GK5</span></span>
+                    <span class="st"><span class="eta">14 min</span><span class="tag">9.1 km out</span></span>
+                  </div>
+                  <div class="pr">
+                    <span class="av">BN</span>
+                    <span class="who"><span class="nm">Ben</span><span class="plate">Vios</span></span>
+                    <span class="st"><span class="eta" style="color:var(--a-text-3)">—</span><span class="tag">No signal yet</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="stkbar">
+              <div class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M9 4L3 6.5v13L9 17l6 2.5 6-2.5v-13L15 7z"/><path d="M9 4v13M15 7v12.5"/></svg>
+                Open live map
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="n-title"><h3>Roll call</h3><span class="file">src/screens/RunDetailScreen.tsx</span></div>
+          <ul class="chg">
+            <li><b>The car becomes a plate.</b> <span class="req">R2</span> Mono, boxed, uppercase — the single cheapest way to make this feel automotive. <strong>Zero backend change:</strong> it's your existing free-text <code>carName</code>, just typeset like a plate instead of dumped as a grey subtitle.</li>
+            <li><b>ETA gets the size it deserves.</b> <span class="req">R4</span> <code>6 min</code> at 19px mono, right-aligned in a column, with distance underneath. Today it's <code>type.headline</code> buried in a row — the one number people open this screen for.</li>
+            <li><b>Arrived rows carry a green edge <em>and</em> a filled avatar <em>and</em> a tick.</b> Three redundant signals, so the state survives glare and colour-blindness. Your current version leans on a small green symbol.</li>
+            <li><b>Route reads as a route.</b> <span class="req">R5</span> Meetup and destination joined by a dotted road line, Waze on each leg. Was two identical <code>ListRow</code>s in a <code>Group</code>.</li>
+            <li><b>"No signal yet" is a first-class state.</b> <span class="req">C5</span> Your spec demands graceful degradation; the board should say so plainly instead of showing a blank ETA.</li>
+            <li><b>Destructive actions move off the hero.</b> Leave Run / End Run drop to the bottom of the scroll, below the board. The primary action is the map.</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ============ 4. LIVE MAP ============ -->
+      <article class="screen">
+        <div class="phone">
+          <div class="glass" data-appskin>
+            <div class="mapwrap" aria-hidden="true">
+              <svg viewBox="0 0 390 780" preserveAspectRatio="xMidYMid slice">
+                <rect width="390" height="780" fill="var(--a-map)"/>
+                <path d="M0,596 C70,566 132,638 200,614 C262,592 322,648 390,622 L390,780 L0,780 Z" fill="var(--a-map-water)"/>
+                <g stroke="var(--a-map-road)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M-20,556 C80,520 150,470 210,392 C272,312 300,214 330,60" stroke-width="12" opacity=".9"/>
+                  <path d="M-10,300 C80,318 170,286 260,308 C320,322 360,306 400,316" stroke-width="5" opacity=".55"/>
+                  <path d="M-10,672 C90,690 160,660 250,676 C310,687 356,672 400,680" stroke-width="5" opacity=".55"/>
+                  <path d="M96,-10 C110,90 78,180 116,300" stroke-width="4" opacity=".45"/>
+                  <path d="M300,700 C288,600 330,520 302,420 C282,348 316,270 300,180" stroke-width="4" opacity=".45"/>
+                  <path d="M40,150 C110,140 150,190 220,176" stroke-width="3" opacity=".35"/>
+                  <path d="M150,740 C210,728 240,760 320,744" stroke-width="3" opacity=".35"/>
+                </g>
+                <path d="M66,500 C120,446 158,386 210,326 C260,268 294,196 312,108"
+                      fill="none" stroke="var(--a-accent)" stroke-width="4" stroke-linecap="round" opacity=".55"/>
+              </svg>
+            </div>
+
+            <span class="mk-pin" style="left:16.9%;top:64.1%"><em>Meetup</em><u class="meet"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg></u></span>
+            <span class="mk-pin" style="left:80%;top:13.8%"><em>Gunung Pulai</em><u class="dest"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3v18h1.8v-7.4h9.6L14.5 9l2.9-4.6H6z"/></svg></u></span>
+
+            <span class="mk-dot" style="left:22.1%;top:60.3%"><u class="st"></u><em>Ben · 3m ago</em></span>
+            <span class="mk-dot" style="left:30.3%;top:55.4%"><u class="ot"></u><em>Sarah</em></span>
+            <span class="mk-dot" style="left:41%;top:48.5%"><u class="me"></u><em>You</em></span>
+            <span class="mk-dot" style="left:53.8%;top:41.8%"><u class="ot"></u><em>Wei Jie</em></span>
+            <span class="mk-dot" style="left:64.6%;top:34.1%"><u class="ot"></u><em>Kah Hoe</em></span>
+            <span class="mk-dot" style="left:72.3%;top:26.4%"><u class="ot"></u><em>Danish</em></span>
+
+            <div class="stat" style="position:relative;z-index:4;color:var(--a-text);text-shadow:0 1px 3px rgba(0,0,0,.5)"><span>08:04</span><span class="dots-r"><span></span><span></span><span class="b"></span></span></div>
+            <div class="overbar">
+              <span class="gbtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+              <span class="pill-live" style="box-shadow:var(--a-shadow)"><i></i>Live</span>
+              <span style="flex:1"></span>
+              <span class="gbtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke-linecap="round"/></svg></span>
+              <span class="gbtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H4v5M15 20h5v-5M20 9V4h-5M4 15v5h5"/></svg></span>
+            </div>
+
+            <div class="sheet">
+              <span class="grab"></span>
+              <div class="ahead">
+                <span class="num">1.2</span>
+                <span class="un">km</span>
+                <span class="of">to <b>Wei Jie</b>,<br>the car ahead of you</span>
+              </div>
+              <div class="crewstrip">
+                <span class="cchip sel"><span class="av me">IT</span><span class="tx"><b>You</b><i>GR86</i></span></span>
+                <span class="cchip"><span class="av">WJ</span><span class="tx"><b>Wei Jie</b><i>1.2 km</i></span></span>
+                <span class="cchip"><span class="av">KH</span><span class="tx"><b>Kah Hoe</b><i>2.8 km</i></span></span>
+                <span class="cchip"><span class="av">DN</span><span class="tx"><b>Danish</b><i>4.1 km</i></span></span>
+              </div>
+              <div class="btn">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l8.2 18.2a.8.8 0 0 1-1.1 1L12 18.4l-7.1 3.3a.8.8 0 0 1-1.1-1z"/></svg>
+                Waze to Gunung Pulai
+              </div>
+              <span class="shareline"><b></b>Sharing your location — stops when the run ends.</span>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="n-title"><h3>Live map</h3><span class="file">src/screens/LiveMapScreen.tsx</span></div>
+          <ul class="chg">
+            <li><b>"Distance to car ahead" becomes the biggest thing on screen.</b> <span class="req">R4</span> 40px mono. Right now it's one line in a floating card. This is the number a driver checks at 100km/h on the Second Link — it should be readable without focusing.</li>
+            <li><b>Crew strip instead of a member list.</b> A horizontal scroll of avatar + distance chips: the convoy order, left to right. Tap one to centre on them. Same <code>snapshot.members</code> data you already push over the socket.</li>
+            <li><b>Waze is permanently docked.</b> <span class="req">R5</span> Never more than one tap, never behind a selection.</li>
+            <li><b>Stale dots say how stale.</b> <span class="req">C5</span> Grey fill plus <code>· 3m ago</code> on the label, instead of a separate indicator. Your <code>isStale()</code> and <code>formatAge()</code> already produce this.</li>
+            <li><b>Keeps your Liquid Glass work.</b> <code>expo-glass-effect</code> stays on the bar buttons and the sheet — it's the one Apple-ism worth keeping, because it's the right material for floating controls over a map.</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ============ 5. NEW RUN ============ -->
+      <article class="screen">
+        <div class="phone">
+          <div class="glass" data-appskin>
+            <div class="stat"><span>22:03</span><span class="dots-r"><span></span><span></span><span class="b"></span></span></div>
+            <div class="appbar">
+              <span class="ibtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+              <span class="ttl">New run</span>
+            </div>
+            <div class="scroller" style="gap:16px">
+              <div class="field">
+                <span class="lb">Call it</span>
+                <span class="vl" style="font-family:var(--ui);font-size:19px;font-weight:600">Skudai Sunday Run</span>
+              </div>
+
+              <div style="display:grid;gap:10px">
+                <div class="seg"><div class="sel">Meetup</div><div>Destination</div></div>
+                <div style="position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--a-line);height:210px;background:var(--a-map)">
+                  <svg viewBox="0 0 356 210" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="display:block;width:100%;height:100%">
+                    <rect width="356" height="210" fill="var(--a-map)"/>
+                    <path d="M0,168 C60,152 110,186 180,172 C240,160 300,192 356,178 L356,210 L0,210 Z" fill="var(--a-map-water)"/>
+                    <g stroke="var(--a-map-road)" fill="none" stroke-linecap="round">
+                      <path d="M-10,132 C70,110 130,80 190,44 C240,14 290,6 366,-4" stroke-width="9" opacity=".9"/>
+                      <path d="M-10,72 C80,86 150,60 240,78 C300,90 330,76 366,84" stroke-width="4" opacity=".5"/>
+                      <path d="M86,-10 C96,60 66,110 104,200" stroke-width="3.5" opacity=".42"/>
+                      <path d="M268,210 C258,140 296,96 274,30" stroke-width="3.5" opacity=".42"/>
+                    </g>
+                  </svg>
+                  <span class="mk-pin" style="left:38%;top:57%"><em>Tap to move</em><u class="meet"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg></u></span>
+                </div>
+                <div class="field">
+                  <span class="lb">Meetup name</span>
+                  <span class="vl" style="font-family:var(--ui);font-size:16px">Petronas Skudai</span>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div class="field"><span class="lb">Date</span><span class="vl">21 SEP</span></div>
+                <div class="field"><span class="lb">Time</span><span class="vl">07:00</span></div>
+              </div>
+
+              <p style="font-size:12.5px;color:var(--a-text-3);line-height:1.5">Nobody shares location until you start the run. You can start it late, or let it auto-end.</p>
+            </div>
+            <div class="stkbar"><div class="btn">Create run</div></div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="n-title"><h3>New run</h3><span class="file">src/screens/CreateRunScreen.tsx</span></div>
+          <ul class="chg">
+            <li><b>Fields stop pretending to be Settings rows.</b> <span class="req">R1</span> The <code>TextFieldRow</code> pattern — fixed 96px label on the left, input on the right — is a preferences form. A create flow wants stacked label-over-value cards with room to type.</li>
+            <li><b>Date and time become two mono tiles.</b> Side by side, tappable, tabular numerals. Not a disclosure row that opens a picker you can't see the result of.</li>
+            <li><b>The map keeps its segmented control</b> — that part of your build is already right. It just gets the new fill and radius.</li>
+            <li><b>One reassurance line at the bottom.</b> <span class="req">R7</span> The most common question a first-time organiser has ("am I broadcasting now?"), answered before they ask.</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ============ 6. YOU / GARAGE ============ -->
+      <article class="screen">
+        <div class="phone">
+          <div class="glass" data-appskin>
+            <div class="stat"><span>07:31</span><span class="dots-r"><span></span><span></span><span class="b"></span></span></div>
+            <div class="appbar">
+              <span class="ibtn" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+              <span class="ttl">You</span>
+            </div>
+            <div class="scroller" style="gap:20px;padding-bottom:96px">
+              <div class="idrow">
+                <span class="av me">IT</span>
+                <span class="tx">
+                  <h4>Isaac</h4>
+                  <p>14 RUNS · SINCE JUL 2026</p>
+                </span>
+              </div>
+
+              <div style="display:grid;gap:11px">
+                <div class="sec-lbl"><span>Garage</span><span class="mono" style="font-size:11px">3</span></div>
+                <div class="gg">
+                  <div class="gcard">
+                    <div class="top"><span class="plate me">GR86</span><span class="mono" style="font-size:9.5px;color:var(--a-accent);letter-spacing:.14em">DEFAULT</span></div>
+                    <span class="nm">Toyota GR86</span>
+                    <span class="mt">USED IN 9 RUNS</span>
+                  </div>
+                  <div class="gcard">
+                    <div class="top"><span class="plate">EK9</span></div>
+                    <span class="nm">Civic Type R EK9</span>
+                    <span class="mt">USED IN 4 RUNS</span>
+                  </div>
+                  <div class="gcard">
+                    <div class="top"><span class="plate">SWIFT</span></div>
+                    <span class="nm">Swift Sport</span>
+                    <span class="mt">USED IN 1 RUN</span>
+                  </div>
+                  <div class="gcard add">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:22px;height:22px"><path d="M12 5v14M5 12h14"/></svg>
+                    <span class="nm">Add a car</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:grid;gap:11px">
+                <div class="sec-lbl"><span>Privacy</span></div>
+                <div class="card" style="padding:13px 15px;display:grid;gap:7px">
+                  <span style="font-weight:600;font-size:14.5px;display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:var(--a-signal);display:block"></span>Sharing now — Skudai Sunday Run</span>
+                  <span style="font-size:12.5px;color:var(--a-text-2);line-height:1.5">Location goes to this run only, and stops when it ends or you leave. No speed is ever recorded.</span>
+                </div>
+              </div>
+
+              <div class="quiet">Leave the group on this phone <span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></span></div>
+            </div>
+
+            <div class="dock">
+              <span class="av on" style="width:34px;height:34px;font-size:12px">4/7</span>
+              <span class="tx">
+                <span class="l1"><span class="pill-live"><i></i>Live</span><b>Skudai Sunday Run</b></span>
+                <span class="l2">WEI JIE 1.2 KM AHEAD</span>
+              </span>
+              <span class="btn sm" style="flex:none">Map</span>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <div class="n-title"><h3>You &amp; garage</h3><span class="file">src/screens/ProfileScreen.tsx</span></div>
+          <ul class="chg">
+            <li><b>Cars become cards, not rows.</b> <span class="req">R2</span> A 2-up grid with the name as a plate chip and a usage count. The garage is the one place in the app that's purely about cars — let it look like it.</li>
+            <li><b>Drops the Edit/Done pattern.</b> That's an iOS list convention. Long-press or swipe a card to remove; the dashed "Add a car" tile replaces the <code>TextFieldRow</code> with the green plus.</li>
+            <li><b>Privacy gets a panel, not a footnote.</b> <span class="req">R7</span><span class="req">C4</span> Live, plain-language state of exactly what's being shared right now. This is what earns you the other 40 installs.</li>
+            <li class="warn"><b>"Used in N runs" is a new number.</b> Derivable from data you already have, but it's a query the server doesn't expose yet. Cut it if you want zero backend movement.</li>
+          </ul>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">The structural change</span>
+      <h2>The live dock</h2>
+      <p>This is the one change that isn't paint, and the one I'd fight for. Today, getting to the map while driving is: open app &rarr; find the run &rarr; tap it &rarr; wait for <code style="font-family:var(--mono);font-size:13.5px">RunDetail</code> to load &rarr; tap "Open Live Map". Five steps, two network round-trips, while moving.</p>
+    </div>
+
+    <div style="display:grid;gap:26px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+      <div style="border:1px solid var(--kerb);border-radius:10px;background:var(--panel);padding:20px;display:grid;gap:14px">
+        <span class="eyebrow" style="color:var(--flare)">Today</span>
+        <ol style="margin:0;padding-left:20px;display:grid;gap:7px;color:var(--marking-2);font-size:15px">
+          <li>Open app &mdash; <code style="font-family:var(--mono);font-size:12.5px">RunListScreen</code></li>
+          <li>Find the active run in a list of three sections</li>
+          <li>Tap it &mdash; navigate, fetch, render <code style="font-family:var(--mono);font-size:12.5px">RunDetailScreen</code></li>
+          <li>Scroll past hero, route group, RSVP group</li>
+          <li>Tap "Open Live Map" &mdash; navigate again</li>
+        </ol>
+        <p style="font-size:14px;color:var(--marking-3);border-top:1px solid var(--kerb);padding-top:13px">Your spec, R5: <em>"glanceable in under a second."</em></p>
+      </div>
+
+      <div style="border:1px solid rgba(255,122,26,.42);border-radius:10px;background:var(--panel);padding:20px;display:grid;gap:14px">
+        <span class="eyebrow" style="color:var(--sodium)">Proposed</span>
+        <ol style="margin:0;padding-left:20px;display:grid;gap:7px;color:var(--marking-2);font-size:15px">
+          <li>Open app &mdash; the dock is already there, on every screen</li>
+          <li>Tap <b style="color:var(--marking)">Map</b></li>
+        </ol>
+        <p style="font-size:14px;color:var(--marking-2);border-top:1px solid var(--kerb);padding-top:13px">A persistent bar above the safe area whenever a run you've joined is <code style="font-family:var(--mono);font-size:12.5px">active</code>. It shows arrival count, run name, and the live "car ahead" distance &mdash; so most of the time you don't even need to open the map. It disappears the moment the run ends, which is also a privacy signal: <b style="color:var(--marking)">dock visible = you are sharing.</b></p>
+      </div>
+    </div>
+
+    <div style="margin-top:26px;border:1px solid var(--kerb);border-radius:10px;background:var(--asphalt);padding:18px;display:grid;gap:12px">
+      <span class="eyebrow">How it's built</span>
+      <p style="color:var(--marking-2);font-size:15px;max-width:75ch">No navigator change. A <code style="font-family:var(--mono);font-size:13px">&lt;LiveDock /&gt;</code> rendered once in <code style="font-family:var(--mono);font-size:13px">App.tsx</code> beneath <code style="font-family:var(--mono);font-size:13px">&lt;Stack.Navigator&gt;</code>, reading <code style="font-family:var(--mono);font-size:13px">activeSessionRunId()</code> and the latest snapshot from <code style="font-family:var(--mono);font-size:13px">liveSession.ts</code> &mdash; both of which are already module-level singletons with a subscribe API. It hides itself on <code style="font-family:var(--mono);font-size:13px">LiveMap</code> and on modal presentations. Screens gain bottom padding when it's visible.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Blast radius</span>
+      <h2>What this actually costs you</h2>
+      <p>Straight answer: the token layer is a rewrite, the screens are a reskin, and you lose one thing that matters. Read the last row before you say yes.</p>
+    </div>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>File</th><th>Change</th><th>Effort</th></tr></thead>
+        <tbody>
+          <tr><td><code>src/ui/theme.ts</code></td><td>New palette, 3 font families, new type scale, new radii. <code>makeStyles</code> / <code>usePalette</code> API stays identical, so nothing downstream breaks.</td><td class="eff hi">Rewrite</td></tr>
+          <tr><td><code>src/ui/components.tsx</code></td><td><code>Button</code>, <code>EmptyState</code>, <code>Segmented</code>, <code>Avatar</code>, <code>LiveBadge</code> restyle in place. <code>Group</code> / <code>ListRow</code> demoted — still used in the car picker, gone from the run screens. New: <code>Plate</code>, <code>RunCard</code>, <code>HeroRunCard</code>, <code>CrewStrip</code>, <code>AvatarStack</code>.</td><td class="eff hi">Heavy</td></tr>
+          <tr><td><code>src/ui/Icon.tsx</code></td><td>Unchanged. SF Symbols / Material Symbols still fit the new look.</td><td class="eff lo">None</td></tr>
+          <tr><td><code>App.tsx</code></td><td>Navigation theme colours; mount <code>&lt;LiveDock /&gt;</code>; drop <code>headerLargeTitle</code> on Runs.</td><td class="eff md">Small</td></tr>
+          <tr><td><code>RunListScreen.tsx</code></td><td>Three renderers instead of one <code>RunRow</code>. Section logic unchanged.</td><td class="eff hi">Rewrite</td></tr>
+          <tr><td><code>RunDetailScreen.tsx</code></td><td>New hero, route block, board rows. All reducer / <code>liveSession</code> / permission logic untouched.</td><td class="eff hi">Rewrite</td></tr>
+          <tr><td><code>LiveMapScreen.tsx</code></td><td>Sheet redesign + crew strip. Map, camera, clustering, staleness logic untouched.</td><td class="eff md">Moderate</td></tr>
+          <tr><td><code>CreateRun</code> · <code>CarPicker</code> · <code>Invite</code> · <code>Profile</code></td><td>Reskin against the new tokens; Profile's garage becomes a grid.</td><td class="eff md">Moderate</td></tr>
+          <tr><td><code>src/lib/**</code> · <code>server/**</code></td><td>Nothing. Zero API or contract changes — except the optional "used in N runs" count.</td><td class="eff lo">None</td></tr>
+          <tr><td><b>What you give up</b></td><td>Leaving <code>PlatformColor</code> / <code>DynamicColorIOS</code> means you lose <b>free</b> Increase Contrast, free system dark mode, and automatic adaptation to future iOS appearance settings. You'd own that in <code>theme.ts</code> instead. I've kept the <code>Palette</code> interface and both schemes so the work is bounded — but this is a real, permanent trade, not a detail. iOS Dynamic Type still works; the type scale just stops being Apple's.</td><td class="eff hi">Trade-off</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Before I write code</span>
+      <h2>Five things only you can decide</h2>
+    </div>
+    <div class="asks">
+      <div class="ask">
+        <h4>Dark-only, or both themes?</h4>
+        <p>I've drawn both. Night-only is the stronger design and halves the work. But your <code style="font-family:var(--mono);font-size:13px">app.json</code> says <code style="font-family:var(--mono);font-size:13px">"userInterfaceStyle": "automatic"</code>, and half your group will be on a bright phone at a 7am breakfast run.</p>
+        <p class="rec"><b>My call:</b> ship both. Default to Night regardless of system setting, with a switch in <em>You</em>. A convoy app that flashes white at 11pm is a real problem.</p>
+      </div>
+      <div class="ask">
+        <h4>Plate numbers as a real field?</h4>
+        <p>Everything above uses your existing free-text <code style="font-family:var(--mono);font-size:13px">carName</code>, typeset as a plate. A genuine plate field (<code style="font-family:var(--mono);font-size:13px">JQK 8899</code>) would make the board scannable at a physical meetup — you find the car before you find the face.</p>
+        <p class="rec"><b>My call:</b> not in v1. It's a schema change, a migration, and a privacy question for a 50-person group. Park it.</p>
+      </div>
+      <div class="ask">
+        <h4>Does the live dock survive contact?</h4>
+        <p>It's the change with the most upside and the most risk — it eats ~64px on every screen and it's the one thing I can't validate without you holding the phone in a car.</p>
+        <p class="rec"><b>My call:</b> build it, put it in front of three people on a real run, keep or kill it after. Don't debate it in a doc.</p>
+      </div>
+      <div class="ask">
+        <h4>Map strip on the home screen?</h4>
+        <p>The hero card's mini-map is the single most expensive element here: a MapLibre instance or snapshot on the list screen, plus tile fetches. It's also what makes the screen feel like a car app.</p>
+        <p class="rec"><b>My call:</b> ship v1 with a flat ground and the dot trail. Add the map strip only if the list screen stays fast.</p>
+      </div>
+      <div class="ask">
+        <h4>All at once, or theme first?</h4>
+        <p>Big-bang reskin, or land <code style="font-family:var(--mono);font-size:13px">theme.ts</code> + <code style="font-family:var(--mono);font-size:13px">components.tsx</code> first and migrate screens one PR at a time?</p>
+        <p class="rec"><b>My call:</b> tokens first, then Runs, then Run detail, then the rest. Your tests in <code style="font-family:var(--mono);font-size:13px">src/lib/__tests__</code> don't touch UI, so nothing protects you from a big-bang regression.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="trail" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span>
+    <p><b>Runs — Night Build v1.</b> Proposal only. No app code has been changed.</p>
+    <p>Checked against <code style="font-family:var(--mono);font-size:13px">runs-v1-spec.md</code>: no speed anywhere, no leader role, no chat, no public discovery, no Mapbox or Google SDK. Requirement tags in the notes map to that document.</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var night = document.getElementById("t-night");
+  var day = document.getElementById("t-day");
+  function apply(mode) {
+    document.querySelectorAll("[data-appskin]").forEach(function (el) {
+      el.setAttribute("data-app", mode);
+    });
+    night.setAttribute("aria-pressed", String(mode === "night"));
+    day.setAttribute("aria-pressed", String(mode === "day"));
+    try { localStorage.setItem("runs-skin", mode); } catch (e) {}
+  }
+  night.addEventListener("click", function () { apply("night"); });
+  day.addEventListener("click", function () { apply("day"); });
+  var saved = null;
+  try { saved = localStorage.getItem("runs-skin"); } catch (e) {}
+  apply(saved === "day" ? "day" : "night");
+})();
+</script>

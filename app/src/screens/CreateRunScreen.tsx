@@ -2,18 +2,18 @@
  * Create run (R1): name, meetup picked on a MapLibre map (tap to drop pin),
  * optional destination, date/time. POSTs /runs per the contract.
  *
- * Presented as a modal sheet like Calendar's New Event: Cancel on the
- * leading edge, a prominent Add on the trailing edge, and a Discard Changes
- * confirmation if people swipe away with edits (HIG › Sheets).
+ * A create flow wants room to type, so fields are stacked label-over-value
+ * cards rather than preference rows with a fixed label column. Date and time
+ * are mono tiles you can read at a glance instead of disclosure rows that
+ * hide what you picked.
  */
+import { Camera, Map, Marker } from "@maplibre/maplibre-react-native";
 import DateTimePicker, {
   DateTimePickerAndroid,
 } from "@react-native-community/datetimepicker";
-import { Camera, Map, Marker } from "@maplibre/maplibre-react-native";
 import { usePreventRemove } from "@react-navigation/native";
 import { useLayoutEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -21,16 +21,17 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, createRun } from "../api/client";
 import type { LatLng } from "../api/types";
 import { MAP_STYLE_DARK_URL, MAP_STYLE_URL } from "../config";
 import type { ScreenProps } from "../navigation/types";
 import {
-  Group,
-  ListRow,
+  Button,
+  FieldTile,
   Segmented,
-  TextFieldRow,
+  TextField,
   confirmAction,
 } from "../ui/components";
 import { haptic } from "../ui/haptics";
@@ -41,12 +42,11 @@ import {
 } from "../ui/mapMarkers";
 import {
   ROW_INSET,
-  TOUCH_MIN,
   makeStyles,
+  radius,
   schemeHex,
   spacing,
   type,
-  usePalette,
   useScheme,
 } from "../ui/theme";
 
@@ -69,8 +69,8 @@ function withTime(base: Date, picked: Date): Date {
 
 export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">) {
   const s = useStyles();
-  const c = usePalette();
   const scheme = useScheme();
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
   const [pinMode, setPinMode] = useState<PlaceKind>("meetup");
   const [meetup, setMeetup] = useState<LatLng | null>(null);
@@ -113,7 +113,7 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
     } catch (err) {
       haptic.error();
       Alert.alert(
-        "Couldn't Create the Run",
+        "Couldn't create the run",
         err instanceof ApiError && err.network
           ? "The server is unreachable. Try again when you're back online."
           : "Something went wrong. Try again.",
@@ -128,8 +128,8 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
       return;
     }
     void confirmAction({
-      title: "Discard This Run?",
-      confirmLabel: "Discard Changes",
+      title: "Discard this run?",
+      confirmLabel: "Discard changes",
       destructive: true,
     }).then((ok) => {
       if (ok) {
@@ -139,43 +139,11 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
     });
   });
 
-  // Bar buttons are created once per state change; always call the latest.
+  // Keep the submit closure fresh without recreating the bar every keystroke.
   const submitRef = useRef(submit);
   useLayoutEffect(() => {
     submitRef.current = submit;
   });
-
-  useLayoutEffect(() => {
-    const cancel = () => navigation.goBack();
-    const add = () => void submitRef.current();
-    navigation.setOptions({
-      unstable_headerLeftItems: () => [
-        { type: "button", label: "Cancel", onPress: cancel },
-      ],
-      unstable_headerRightItems: () => [
-        {
-          type: "button",
-          label: busy ? "Adding…" : "Add",
-          variant: "prominent",
-          disabled: !valid || busy,
-          onPress: add,
-        },
-      ],
-      headerLeft:
-        Platform.OS === "ios"
-          ? undefined
-          : () => <HeaderText label="Cancel" onPress={cancel} />,
-      headerRight:
-        Platform.OS === "ios"
-          ? undefined
-          : () =>
-              busy ? (
-                <ActivityIndicator color={c.tint} />
-              ) : (
-                <HeaderText label="Add" onPress={add} disabled={!valid} bold />
-              ),
-    });
-  }, [navigation, valid, busy, c]);
 
   const pinSet = pinMode === "meetup" ? !!meetup : !!destination;
   const mapHint =
@@ -188,18 +156,32 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
         : "Optional · tap where the drive ends";
 
   return (
-    <ScrollView
-      style={s.root}
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={s.content}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-      automaticallyAdjustKeyboardInsets
-    >
-      <Group>
-        <TextFieldRow
-          placeholder="Run Name"
-          accessibilityLabel="Run name"
+    <View style={s.root}>
+      <View style={[s.bar, { paddingTop: insets.top + spacing.m }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
+          onPress={() => navigation.goBack()}
+          hitSlop={8}
+          style={({ pressed }) => [s.cancel, pressed && { opacity: 0.6 }]}
+        >
+          <Text style={s.cancelText}>Cancel</Text>
+        </Pressable>
+        <Text style={s.title} accessibilityRole="header">
+          New run
+        </Text>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={s.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+      >
+        <TextField
+          label="Call it"
+          placeholder="Sunday breakfast run"
+          hero
           value={name}
           onChangeText={setName}
           maxLength={80}
@@ -207,73 +189,56 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
           autoFocus
           returnKeyType="done"
         />
-      </Group>
 
-      <Group>
-        <StartsRow value={startsAt} tint={schemeHex(scheme).tint} onChange={setStartsAt} />
-      </Group>
+        <Segmented
+          options={[
+            { key: "meetup", label: "Meetup", done: !!meetup },
+            { key: "destination", label: "Destination", done: !!destination },
+          ]}
+          value={pinMode}
+          onChange={(k) => {
+            haptic.selection();
+            setPinMode(k);
+          }}
+        />
 
-      <Group
-        header="Location"
-        footer={
-          valid
-            ? "Everyone who joins gets one-tap Waze directions to these places."
-            : `Add ${missing.join(" and ")} to create the run.`
-        }
-      >
-        <ListRow>
-          <View style={s.segment}>
-            <Segmented
-              options={[
-                { key: "meetup", label: "Meetup", done: !!meetup },
-                { key: "destination", label: "Destination", done: !!destination },
-              ]}
-              value={pinMode}
-              onChange={(k) => {
-                haptic.selection();
-                setPinMode(k);
-              }}
-            />
+        <View style={s.mapWrap}>
+          <Map
+            style={s.map}
+            mapStyle={scheme === "night" ? MAP_STYLE_DARK_URL : MAP_STYLE_URL}
+            compass={false}
+            onPress={(e) => {
+              const lngLat = e.nativeEvent.lngLat;
+              if (!lngLat) return;
+              const point: LatLng = { lat: lngLat[1], lng: lngLat[0] };
+              haptic.selection();
+              if (pinMode === "meetup") setMeetup(point);
+              else setDestination(point);
+            }}
+          >
+            <Camera initialViewState={{ center: DEFAULT_CENTER, zoom: 9 }} />
+            {meetup ? (
+              <Marker lngLat={[meetup.lng, meetup.lat]} {...PLACE_MARKER_PROPS}>
+                <PlaceMarker kind="meetup" />
+              </Marker>
+            ) : null}
+            {destination ? (
+              <Marker
+                lngLat={[destination.lng, destination.lat]}
+                {...PLACE_MARKER_PROPS}
+              >
+                <PlaceMarker kind="destination" />
+              </Marker>
+            ) : null}
+          </Map>
+          <View style={s.mapHint} pointerEvents="none">
+            <Text style={s.mapHintText}>{mapHint.toUpperCase()}</Text>
           </View>
-        </ListRow>
-        <ListRow flush>
-          <View style={s.mapWrap}>
-            <Map
-              style={s.map}
-              mapStyle={scheme === "dark" ? MAP_STYLE_DARK_URL : MAP_STYLE_URL}
-              compass={false}
-              onPress={(e) => {
-                const lngLat = e.nativeEvent.lngLat;
-                if (!lngLat) return;
-                const point: LatLng = { lat: lngLat[1], lng: lngLat[0] };
-                haptic.selection();
-                if (pinMode === "meetup") setMeetup(point);
-                else setDestination(point);
-              }}
-            >
-              <Camera initialViewState={{ center: DEFAULT_CENTER, zoom: 9 }} />
-              {meetup ? (
-                <Marker lngLat={[meetup.lng, meetup.lat]} {...PLACE_MARKER_PROPS}>
-                  <PlaceMarker kind="meetup" />
-                </Marker>
-              ) : null}
-              {destination ? (
-                <Marker
-                  lngLat={[destination.lng, destination.lat]}
-                  {...PLACE_MARKER_PROPS}
-                >
-                  <PlaceMarker kind="destination" />
-                </Marker>
-              ) : null}
-            </Map>
-            <View style={s.mapHint} pointerEvents="none">
-              <Text style={s.mapHintText}>{mapHint}</Text>
-            </View>
-          </View>
-        </ListRow>
+        </View>
+
         {pinMode === "meetup" ? (
-          <TextFieldRow
-            label="Name"
+          <TextField
+            label="Meetup name"
             placeholder="e.g. Caltex before Tuas"
             value={meetupLabel}
             onChangeText={setMeetupLabel}
@@ -281,8 +246,8 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
             returnKeyType="done"
           />
         ) : (
-          <TextFieldRow
-            label="Name"
+          <TextField
+            label="Destination name"
             placeholder="e.g. Desaru Coast"
             value={destinationLabel}
             onChangeText={setDestinationLabel}
@@ -290,32 +255,49 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
             returnKeyType="done"
           />
         )}
+
         {pinMode === "destination" && destination ? (
-          <ListRow
-            title="Remove Destination"
-            destructive
+          <Button
+            title="Remove destination"
+            role="destructive"
+            size="regular"
             onPress={() => {
               setDestination(null);
               setDestinationLabel("");
             }}
           />
         ) : null}
-      </Group>
-    </ScrollView>
+
+        <Starts value={startsAt} tint={schemeHex(scheme).tint} onChange={setStartsAt} />
+
+        <Text style={s.footnote}>
+          {valid
+            ? "Everyone who joins gets one-tap Waze directions to these places. Nobody shares location until you start the run."
+            : `Add ${missing.join(" and ")} to create the run.`}
+        </Text>
+      </ScrollView>
+
+      <View style={[s.bottom, { paddingBottom: insets.bottom + spacing.m }]}>
+        <Button
+          title={busy ? "Creating…" : "Create run"}
+          onPress={() => void submitRef.current()}
+          loading={busy}
+          disabled={!valid}
+        />
+      </View>
+    </View>
   );
 }
 
 /**
- * "Starts" row. iOS shows the native compact date and time pickers in place
- * (like Calendar); Android opens the system dialogs from tappable values.
+ * Start date and time. iOS shows the native compact pickers in place (like
+ * Calendar); Android opens the system dialogs from two mono tiles.
  */
-function StartsRow({
-  position,
+function Starts({
   value,
   tint,
   onChange,
 }: {
-  position?: "only" | "first" | "middle" | "last";
   value: Date;
   /** Hex tint — the picker's accentColor only accepts strings. */
   tint: string;
@@ -323,25 +305,25 @@ function StartsRow({
 }) {
   const s = useStyles();
   const today = new Date();
+
   if (Platform.OS === "ios") {
     return (
-      <ListRow position={position}>
-        <View style={s.starts}>
-          <Text style={s.startsLabel}>Starts</Text>
-          <DateTimePicker
-            value={value}
-            mode="datetime"
-            display="compact"
-            accentColor={tint}
-            minimumDate={today}
-            minuteInterval={5}
-            accessibilityLabel="Start date and time"
-            onValueChange={(_, picked) => onChange(withTime(picked, picked))}
-          />
-        </View>
-      </ListRow>
+      <View style={s.starts}>
+        <Text style={s.startsLabel}>STARTS</Text>
+        <DateTimePicker
+          value={value}
+          mode="datetime"
+          display="compact"
+          accentColor={tint}
+          minimumDate={today}
+          minuteInterval={5}
+          accessibilityLabel="Start date and time"
+          onValueChange={(_, picked) => onChange(withTime(picked, picked))}
+        />
+      </View>
     );
   }
+
   const open = (mode: "date" | "time") =>
     DateTimePickerAndroid.open({
       value,
@@ -350,94 +332,112 @@ function StartsRow({
       onValueChange: (_, picked) =>
         onChange(mode === "date" ? withDate(value, picked) : withTime(value, picked)),
     });
-  return (
-    <ListRow position={position}>
-      <View style={s.starts}>
-        <Text style={s.startsLabel}>Starts</Text>
-        <View style={s.startsValues}>
-          <Pressable accessibilityRole="button" onPress={() => open("date")} style={s.chip}>
-            <Text style={s.chipText}>
-              {value.toLocaleDateString(undefined, {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-              })}
-            </Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => open("time")} style={s.chip}>
-            <Text style={s.chipText}>
-              {value.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-    </ListRow>
-  );
-}
 
-function HeaderText({
-  label,
-  onPress,
-  disabled,
-  bold,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  bold?: boolean;
-}) {
-  const s = useStyles();
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      disabled={disabled}
-      style={[s.headerText, disabled && { opacity: 0.35 }]}
-    >
-      <Text style={[s.headerTextLabel, bold && s.headerTextBold]}>{label}</Text>
-    </Pressable>
+    <View style={s.startsRow}>
+      <FieldTile
+        label="Date"
+        value={value
+          .toLocaleDateString(undefined, { day: "numeric", month: "short" })
+          .toUpperCase()}
+        onPress={() => open("date")}
+        accessibilityHint="Opens the date picker"
+        style={s.flex}
+      />
+      <FieldTile
+        label="Time"
+        value={value.toLocaleTimeString(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+        onPress={() => open("time")}
+        accessibilityHint="Opens the time picker"
+        style={s.flex}
+      />
+    </View>
   );
 }
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.background },
-  content: { paddingHorizontal: ROW_INSET, paddingTop: spacing.l, paddingBottom: spacing.xxl },
-  segment: { flex: 1 },
-  mapWrap: { flex: 1, height: 280 },
+  flex: { flex: 1 },
+
+  bar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.m,
+    paddingHorizontal: ROW_INSET,
+    paddingBottom: spacing.m,
+  },
+  cancel: { minHeight: 32, justifyContent: "center" },
+  cancelText: { ...type.calloutSemi, color: c.tint },
+  title: {
+    ...type.display2,
+    textTransform: "uppercase",
+    color: c.label,
+    flex: 1,
+    textAlign: "right",
+  },
+
+  content: {
+    paddingHorizontal: ROW_INSET,
+    paddingTop: spacing.s,
+    paddingBottom: spacing.xxl,
+    gap: spacing.m,
+  },
+
+  mapWrap: {
+    height: 260,
+    borderRadius: radius.card,
+    borderWidth: 0.5,
+    borderColor: c.separator,
+    overflow: "hidden",
+    backgroundColor: c.mapBackground,
+  },
   map: { flex: 1 },
   mapHint: {
     position: "absolute",
     top: spacing.s,
     alignSelf: "center",
     backgroundColor: c.mapChip,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     paddingHorizontal: spacing.m,
-    paddingVertical: 6,
+    paddingVertical: 5,
   },
-  mapHintText: { ...type.footnote, fontWeight: "600", color: c.label },
+  mapHintText: {
+    ...type.eyebrow,
+    fontSize: 9.5,
+    letterSpacing: 1.3,
+    color: c.label,
+  },
+
   starts: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: spacing.m,
+    minHeight: 62,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
+    backgroundColor: c.surface,
+    borderRadius: radius.control,
+    borderWidth: 0.5,
+    borderColor: c.separator,
   },
-  startsLabel: { ...type.body, color: c.label },
-  startsValues: { flexDirection: "row", gap: spacing.s },
-  chip: {
-    minHeight: TOUCH_MIN - 8,
-    justifyContent: "center",
-    paddingHorizontal: spacing.m,
-    borderRadius: 8,
-    backgroundColor: c.fill,
+  startsLabel: { ...type.eyebrow, color: c.tertiaryLabel },
+  startsRow: { flexDirection: "row", gap: spacing.m },
+
+  footnote: {
+    ...type.footnote,
+    color: c.tertiaryLabel,
+    paddingHorizontal: spacing.xs,
+    marginTop: spacing.xs,
   },
-  chipText: { ...type.body, color: c.label },
-  headerText: {
-    minHeight: TOUCH_MIN,
-    minWidth: TOUCH_MIN,
-    justifyContent: "center",
-    paddingHorizontal: spacing.s,
+  bottom: {
+    paddingHorizontal: ROW_INSET,
+    paddingTop: spacing.m,
+    borderTopWidth: 0.5,
+    borderTopColor: c.separator,
+    backgroundColor: c.background,
   },
-  headerTextLabel: { ...type.body, color: c.tint },
-  headerTextBold: { fontWeight: "600" },
 }));

@@ -1,10 +1,13 @@
 /**
  * RSVP car picker (R2), presented as a native resizable sheet with a grabber
- * (HIG › Sheets: Cancel on the leading edge, swipe to dismiss). Choosing a
- * car saves the RSVP and closes the sheet; the run screen refreshes on focus.
+ * (Cancel on the leading edge, swipe to dismiss). Choosing a car saves the
+ * RSVP and closes the sheet; the run screen refreshes on focus.
+ *
+ * This stays a grouped list on purpose — it's a short pick-one decision, and
+ * the card treatment used elsewhere would add weight without adding clarity.
  */
 import { useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 
 import { ApiError, addCar, getMe, rsvp } from "../api/client";
 import type { Car } from "../api/types";
@@ -14,6 +17,7 @@ import {
   Group,
   InlineBanner,
   ListRow,
+  Plate,
   TextFieldRow,
 } from "../ui/components";
 import { haptic } from "../ui/haptics";
@@ -80,17 +84,18 @@ export default function CarPickerScreen({
   return (
     <View style={s.root}>
       <View style={s.bar}>
-        <Button
-          title="Cancel"
-          role="plain"
-          size="regular"
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
           onPress={() => navigation.goBack()}
-          style={s.barSide}
-        />
-        <Text style={s.barTitle} accessibilityRole="header">
-          Choose Your Car
+          hitSlop={8}
+          style={({ pressed }) => [s.cancel, pressed && { opacity: 0.6 }]}
+        >
+          <Text style={s.cancelText}>Cancel</Text>
+        </Pressable>
+        <Text style={s.title} accessibilityRole="header">
+          What are you bringing?
         </Text>
-        <View style={s.barSide} />
       </View>
 
       <ScrollView
@@ -100,11 +105,16 @@ export default function CarPickerScreen({
       >
         {error ? (
           <View style={s.error}>
-            <InlineBanner icon="warning" tone="warning" title="Something Went Wrong" body={error} />
+            <InlineBanner
+              icon="warning"
+              tone="warning"
+              title="Something went wrong"
+              body={error}
+            />
           </View>
         ) : null}
 
-        <Group header="Your Garage" footer="Shown next to your name on the arrival board.">
+        <Group header="Your garage" footer="Shown next to your name on the board.">
           {cars === null ? (
             <ListRow>
               <ActivityIndicator color={c.secondaryLabel} />
@@ -113,35 +123,46 @@ export default function CarPickerScreen({
             cars.map((car) => (
               <ListRow
                 key={car.id}
-                leading={<Icon name="car" size={22} color={c.tint} />}
-                title={car.name}
+                leading={<Icon name="car" size={20} color={c.tint} />}
                 onPress={() => void pick(car.id, car.id)}
                 disabled={busy}
                 accessibilityRole="radio"
+                accessibilityLabel={car.name}
                 accessibilityState={{ checked: car.name === currentCar }}
                 trailing={
                   saving === car.id ? (
                     <ActivityIndicator color={c.secondaryLabel} />
                   ) : car.name === currentCar ? (
-                    <Icon name="check" size={17} weight="semibold" color={c.tint} />
+                    <Icon name="check" size={16} weight="semibold" color={c.tint} />
                   ) : null
                 }
-              />
+              >
+                <View style={s.carRow}>
+                  <Text style={s.carName} numberOfLines={1}>
+                    {car.name}
+                  </Text>
+                  <Plate name={car.name} self={car.name === currentCar} />
+                </View>
+              </ListRow>
             ))
           )}
           <ListRow
-            leading={<Icon name="group" size={20} color={c.secondaryLabel} />}
-            title="Without a Car"
+            leading={<Icon name="group" size={19} color={c.secondaryLabel} />}
+            title="Without a car"
             subtitle="Riding along or not sure yet"
             onPress={() => void pick(null, "none")}
             disabled={busy}
-            trailing={saving === "none" ? <ActivityIndicator color={c.secondaryLabel} /> : null}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: currentCar === null }}
+            trailing={
+              saving === "none" ? <ActivityIndicator color={c.secondaryLabel} /> : null
+            }
           />
         </Group>
 
-        <Group header="Add a Car">
+        <Group header="Add a car">
           <TextFieldRow
-            leading={<Icon name="addCircle" size={22} color={c.green} />}
+            leading={<Icon name="addCircle" size={20} color={c.green} />}
             placeholder="e.g. GR86"
             accessibilityLabel="New car name"
             value={newCar}
@@ -155,7 +176,7 @@ export default function CarPickerScreen({
                 <Button
                   title="Add"
                   role="plain"
-                  size="regular"
+                  size="small"
                   loading={saving === "new"}
                   onPress={() => void addAndPick()}
                 />
@@ -173,12 +194,26 @@ const useStyles = makeStyles((c) => ({
   bar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.xs,
-    paddingTop: spacing.l,
-    paddingBottom: spacing.s,
+    gap: spacing.m,
+    paddingHorizontal: ROW_INSET,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.m,
   },
-  barSide: { minWidth: 88, alignItems: "flex-start" },
-  barTitle: { ...type.headline, color: c.label, flex: 1, textAlign: "center" },
-  content: { paddingHorizontal: ROW_INSET, paddingTop: spacing.s, paddingBottom: spacing.xxl },
+  cancel: { minHeight: 32, justifyContent: "center" },
+  cancelText: { ...type.calloutSemi, color: c.tint },
+  title: {
+    ...type.display3,
+    textTransform: "uppercase",
+    color: c.label,
+    flex: 1,
+    textAlign: "right",
+  },
+  content: {
+    paddingHorizontal: ROW_INSET,
+    paddingTop: spacing.s,
+    paddingBottom: spacing.xxl,
+  },
   error: { marginBottom: spacing.l },
+  carRow: { flex: 1, gap: 4, alignItems: "flex-start" },
+  carName: { ...type.bodySemi, color: c.label },
 }));

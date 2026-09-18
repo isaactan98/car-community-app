@@ -1,56 +1,81 @@
 /**
- * Run list (R1): active + upcoming + recent ended, grouped. Falls back to
- * the cached list with an offline banner when the server is unreachable
- * (R6) — never a blank screen.
+ * Run list (R1): active + upcoming + recent ended.
+ *
+ * Weight follows state. A run happening right now is a hero card carrying the
+ * convoy's dot trail and a direct route to the map; an upcoming run is a
+ * compact card; a past run collapses to a log line. One uniform row for all
+ * three is why nothing used to stand out.
+ *
+ * Falls back to the cached list with an offline banner when the server is
+ * unreachable (R6) — never a blank screen.
  */
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useLayoutEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
-  Platform,
   Pressable,
   RefreshControl,
   SectionList,
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { listRuns } from "../api/client";
 import type { Run, RunState } from "../api/types";
-import { formatWhen } from "../lib/format";
+import { formatShortDate, formatWhen } from "../lib/format";
 import { arrivalCounts } from "../lib/snapshotCache";
 import type { ScreenProps } from "../navigation/types";
 import { useSession } from "../session/SessionContext";
 import { cacheRunList, loadCachedRunList } from "../storage/storage";
 import {
   ArrivalDots,
+  AvatarStack,
   Button,
+  Card,
   EmptyState,
-  ListRow,
+  Eyebrow,
   LiveBadge,
   Loading,
   OfflineBanner,
-  SectionHeader,
-  rowPosition,
-  type RowPosition,
 } from "../ui/components";
 import { Icon, type IconName } from "../ui/Icon";
-import { ROW_INSET, TOUCH_MIN, makeStyles, spacing, type, usePalette } from "../ui/theme";
+import {
+  DOCK_HEIGHT,
+  ROW_INSET,
+  TOUCH_MIN,
+  makeStyles,
+  radius,
+  spacing,
+  type,
+  usePalette,
+} from "../ui/theme";
 import { useNow } from "../ui/useNow";
 
 const SECTIONS: { state: RunState; title: string }[] = [
-  { state: "active", title: "Happening Now" },
+  { state: "active", title: "Happening now" },
   { state: "upcoming", title: "Upcoming" },
-  { state: "ended", title: "Past Runs" },
+  { state: "ended", title: "Past" },
 ];
 
-function groupRuns(runs: Run[]): { title: string; data: Run[] }[] {
+interface Section {
+  title: string;
+  state: RunState;
+  data: Run[];
+}
+
+function groupRuns(runs: Run[]): Section[] {
   const byStart = (a: Run, b: Run) => a.startsAt.localeCompare(b.startsAt);
   return SECTIONS.map(({ state, title }) => {
     const data = runs.filter((r) => r.state === state).sort(byStart);
     // Past runs: most recent first.
     if (state === "ended") data.reverse();
-    return { title, data };
+    return { title, state, data };
   }).filter((s) => s.data.length > 0);
+}
+
+/** Everyone still on the roster — people who left aren't part of the crew. */
+function crew(run: Run) {
+  return run.attendees.filter((a) => a.status !== "left");
 }
 
 function isGoing(run: Run, selfId: string): boolean {
@@ -60,45 +85,13 @@ function isGoing(run: Run, selfId: string): boolean {
 export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
   const s = useStyles();
   const c = usePalette();
+  const insets = useSafeAreaInsets();
   const { member } = useSession();
   const selfId = member?.id ?? "";
   const now = useNow(30_000);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [offline, setOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  useLayoutEffect(() => {
-    const newRun = () => navigation.navigate("CreateRun");
-    const profile = () => navigation.navigate("Profile");
-    navigation.setOptions({
-      // iOS: native bar buttons with SF Symbols (Liquid Glass on iOS 26).
-      unstable_headerRightItems: () => [
-        {
-          type: "button",
-          label: "Profile",
-          icon: { type: "sfSymbol", name: "person.crop.circle" },
-          onPress: profile,
-          accessibilityLabel: "Profile and garage",
-        },
-        {
-          type: "button",
-          label: "New Run",
-          icon: { type: "sfSymbol", name: "plus" },
-          onPress: newRun,
-          accessibilityLabel: "New run",
-        },
-      ],
-      headerRight:
-        Platform.OS === "ios"
-          ? undefined
-          : () => (
-              <View style={s.headerButtons}>
-                <HeaderIcon icon="add" label="New run" onPress={newRun} />
-                <HeaderIcon icon="profile" label="Profile and garage" onPress={profile} />
-              </View>
-            ),
-    });
-  }, [navigation, s]);
 
   const load = useCallback(async () => {
     try {
@@ -125,132 +118,302 @@ export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
     setRefreshing(false);
   };
 
-  if (runs === null) return <Loading />;
+  const bar = (
+    <View style={[s.bar, { paddingTop: insets.top + spacing.s }]}>
+      <Text style={s.wordmark} accessibilityRole="header" maxFontSizeMultiplier={1.4}>
+        Runs
+      </Text>
+      <BarButton
+        icon="profile"
+        label="You and your garage"
+        onPress={() => navigation.navigate("Profile")}
+      />
+      <BarButton
+        icon="add"
+        label="New run"
+        onPress={() => navigation.navigate("CreateRun")}
+      />
+    </View>
+  );
+
+  if (runs === null) {
+    return (
+      <View style={s.screen}>
+        {bar}
+        <Loading />
+      </View>
+    );
+  }
 
   return (
-    <SectionList
-      style={s.list}
-      contentInsetAdjustmentBehavior="automatic"
-      sections={groupRuns(runs)}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={s.content}
-      stickySectionHeadersEnabled={false}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.secondaryLabel} />
-      }
-      ListHeaderComponent={
-        offline ? (
-          <View style={s.banner}>
-            <OfflineBanner visible lastUpdatedAt={null} now={now} onRetry={() => void refresh()} />
-          </View>
-        ) : null
-      }
-      renderSectionHeader={({ section }) => <SectionHeader title={section.title} prominent />}
-      renderSectionFooter={() => <View style={s.sectionGap} />}
-      renderItem={({ item, index, section }) => (
-        <RunRow
-          run={item}
-          going={isGoing(item, selfId)}
-          now={now}
-          position={rowPosition(index, section.data.length)}
-          onPress={() => navigation.navigate("RunDetail", { runId: item.id })}
-        />
-      )}
-      ListEmptyComponent={
-        <EmptyState
-          icon="car"
-          title="No Runs Yet"
-          body="Plan a meetup, then share the invite link with your group."
-        >
-          <Button
-            title="New Run"
-            icon="add"
-            size="regular"
-            onPress={() => navigation.navigate("CreateRun")}
+    <View style={s.screen}>
+      {bar}
+      <SectionList<Run, Section>
+        sections={groupRuns(runs)}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={[
+          s.content,
+          { paddingBottom: insets.bottom + DOCK_HEIGHT + spacing.xxl },
+        ]}
+        stickySectionHeadersEnabled={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refresh}
+            tintColor={c.tint}
+            colors={[c.tint as string]}
           />
-        </EmptyState>
-      }
-    />
+        }
+        ListHeaderComponent={
+          offline ? (
+            <View style={s.banner}>
+              <OfflineBanner
+                visible
+                lastUpdatedAt={null}
+                now={now}
+                onRetry={() => void refresh()}
+              />
+            </View>
+          ) : null
+        }
+        renderSectionHeader={({ section }) => (
+          <Eyebrow
+            title={section.title}
+            count={section.state === "active" ? undefined : section.data.length}
+            style={s.sectionHeader}
+          />
+        )}
+        renderSectionFooter={() => <View style={s.sectionGap} />}
+        renderItem={({ item, section }) => {
+          const going = isGoing(item, selfId);
+          const open = () => navigation.navigate("RunDetail", { runId: item.id });
+          if (section.state === "active") {
+            return (
+              <HeroRunCard
+                run={item}
+                selfId={selfId}
+                now={now}
+                onOpen={open}
+                onMap={() => navigation.navigate("LiveMap", { runId: item.id })}
+              />
+            );
+          }
+          if (section.state === "ended") {
+            return <PastRow run={item} going={going} onPress={open} />;
+          }
+          return (
+            <UpcomingCard
+              run={item}
+              selfId={selfId}
+              going={going}
+              now={now}
+              onPress={open}
+            />
+          );
+        }}
+        ItemSeparatorComponent={() => <View style={s.itemGap} />}
+        ListEmptyComponent={
+          <EmptyState
+            icon="car"
+            title="No runs yet"
+            body="Plan a meetup, then share the invite link with your group."
+          >
+            <Button
+              title="New run"
+              icon="add"
+              size="regular"
+              onPress={() => navigation.navigate("CreateRun")}
+            />
+          </EmptyState>
+        }
+      />
+    </View>
   );
 }
 
-function RunRow({
+/**
+ * The live run. Everything a driver needs before they've focused on the
+ * screen: that it's live, who's in, and one tap to the map.
+ */
+function HeroRunCard({
   run,
+  selfId,
+  now,
+  onOpen,
+  onMap,
+}: {
+  run: Run;
+  selfId: string;
+  now: number;
+  onOpen: () => void;
+  onMap: () => void;
+}) {
+  const s = useStyles();
+  const { arrived, total } = arrivalCounts(run);
+  const people = crew(run);
+  const names = people.map((a) => a.displayName);
+  const selfIndex = people.findIndex((a) => a.memberId === selfId);
+
+  return (
+    <Card style={s.hero}>
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        accessibilityLabel={`${run.name}, live now, ${arrived} of ${total} arrived`}
+        accessibilityHint="Opens the run"
+        style={s.heroBody}
+      >
+        <View style={s.heroTop}>
+          <LiveBadge />
+          <Text style={s.heroStarted}>
+            {formatWhen(run.startsAt, now).toUpperCase()}
+          </Text>
+        </View>
+
+        <Text style={s.heroName} numberOfLines={2}>
+          {run.name}
+        </Text>
+        <RouteLine run={run} />
+
+        <View style={s.heroCount}>
+          <Text style={s.heroTally}>
+            {arrived}
+            <Text style={s.heroTallyOf}>/{total}</Text>
+          </Text>
+          <Text style={s.heroArrived}>arrived</Text>
+          <View style={s.heroDots}>
+            <ArrivalDots arrived={arrived} total={total} />
+          </View>
+        </View>
+
+        {names.length > 0 ? (
+          <AvatarStack names={names} selfIndex={selfIndex} />
+        ) : null}
+      </Pressable>
+
+      <Button title="Open live map" icon="map" onPress={onMap} style={s.heroButton} />
+    </Card>
+  );
+}
+
+function UpcomingCard({
+  run,
+  selfId,
   going,
   now,
-  position,
   onPress,
 }: {
   run: Run;
+  selfId: string;
   going: boolean;
   now: number;
-  position: RowPosition;
   onPress: () => void;
 }) {
   const s = useStyles();
   const c = usePalette();
-  const { arrived, total } = arrivalCounts(run);
-  const active = run.state === "active";
-  const ended = run.state === "ended";
-  const when = formatWhen(run.startsAt, now);
-  const route = run.destination
-    ? `${run.meetup.label} → ${run.destination.label}`
-    : run.meetup.label;
-  const countLabel = active
-    ? `${arrived} of ${total} arrived`
-    : `${total} ${ended ? "went" : "going"}`;
+  const people = crew(run);
+  const names = people.map((a) => a.displayName);
+  const selfIndex = people.findIndex((a) => a.memberId === selfId);
 
   return (
-    <ListRow
-      position={position}
+    <Pressable
       onPress={onPress}
-      chevron
+      accessibilityRole="button"
       accessibilityLabel={[
         run.name,
-        active ? "live now" : null,
-        when,
-        route,
-        countLabel,
-        going ? (ended ? "you went" : "you're going") : null,
+        formatWhen(run.startsAt, now),
+        `${people.length} going`,
+        going ? "you're going" : null,
       ]
         .filter(Boolean)
         .join(", ")}
+      style={({ pressed }) => [s.card, pressed && { backgroundColor: c.highlight }]}
     >
-      <View style={s.rowText}>
-        <View style={s.titleLine}>
-          <Text style={[s.name, ended && s.dim]} numberOfLines={3}>
-            {run.name}
-          </Text>
-          {active ? <LiveBadge /> : null}
-        </View>
-        <Text style={s.meta}>{when}</Text>
-        <Text style={s.meta} numberOfLines={2}>
-          {route}
+      <View style={s.cardTop}>
+        <Text style={s.cardName} numberOfLines={2}>
+          {run.name}
         </Text>
-        {active && total > 0 ? (
-          <View style={s.arrival}>
-            <ArrivalDots arrived={arrived} total={total} />
-            <Text style={s.arrivalText}>{countLabel}</Text>
-          </View>
-        ) : null}
-        <View style={s.footerLine}>
-          {going ? (
-            <>
-              <Icon name="arrived" size={14} color={ended ? c.secondaryLabel : c.tint} />
-              <Text style={[s.going, ended && s.goingPast]}>
-                {ended ? "You went" : "You're going"}
-              </Text>
-              {!active ? <Text style={s.footnote}>·</Text> : null}
-            </>
-          ) : null}
-          {!active ? <Text style={s.footnote}>{countLabel}</Text> : null}
-        </View>
+        <Text style={s.cardWhen}>{formatWhen(run.startsAt, now).toUpperCase()}</Text>
       </View>
-    </ListRow>
+      <RouteLine run={run} />
+      <View style={s.cardBottom}>
+        {names.length > 0 ? (
+          <AvatarStack names={names} selfIndex={selfIndex} />
+        ) : (
+          <Text style={s.cardMeta}>Nobody&apos;s joined yet</Text>
+        )}
+        {going ? (
+          <View style={s.goingChip}>
+            <Text style={s.goingText}>You&apos;re in</Text>
+          </View>
+        ) : (
+          <Icon name="chevron" size={13} weight="semibold" color={c.tertiaryLabel} />
+        )}
+      </View>
+    </Pressable>
   );
 }
 
-function HeaderIcon({
+/** Past runs are a log, not a feed. One line, scannable down the column. */
+function PastRow({
+  run,
+  going,
+  onPress,
+}: {
+  run: Run;
+  going: boolean;
+  onPress: () => void;
+}) {
+  const s = useStyles();
+  const c = usePalette();
+  const people = crew(run);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={[
+        run.name,
+        formatShortDate(run.startsAt),
+        `${people.length} went`,
+        going ? "you went" : null,
+      ]
+        .filter(Boolean)
+        .join(", ")}
+      style={({ pressed }) => [s.past, pressed && { backgroundColor: c.highlight }]}
+    >
+      <Text style={s.pastName} numberOfLines={1}>
+        {run.name}
+      </Text>
+      {going ? (
+        <Icon name="arrived" size={13} color={c.tertiaryLabel} />
+      ) : null}
+      <Text style={s.pastMeta}>
+        {formatShortDate(run.startsAt).toUpperCase()} · {people.length} WENT
+      </Text>
+    </Pressable>
+  );
+}
+
+function RouteLine({ run }: { run: Run }) {
+  const s = useStyles();
+  return (
+    <View style={s.route}>
+      <Text style={s.routeText} numberOfLines={1}>
+        {run.meetup.label}
+      </Text>
+      {run.destination ? (
+        <>
+          <Text style={s.routeArrow}>→</Text>
+          <Text style={s.routeText} numberOfLines={1}>
+            {run.destination.label}
+          </Text>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function BarButton({
   icon,
   label,
   onPress,
@@ -259,35 +422,119 @@ function HeaderIcon({
   label: string;
   onPress: () => void;
 }) {
+  const s = useStyles();
   const c = usePalette();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      hitSlop={8}
-      style={{ minWidth: TOUCH_MIN, minHeight: TOUCH_MIN, alignItems: "center", justifyContent: "center" }}
+      hitSlop={6}
+      style={({ pressed }) => [s.barButton, pressed && { opacity: 0.6 }]}
     >
-      <Icon name={icon} size={24} color={c.label} />
+      <Icon name={icon} size={19} color={c.label} />
     </Pressable>
   );
 }
 
 const useStyles = makeStyles((c) => ({
-  list: { flex: 1, backgroundColor: c.background },
-  content: { paddingHorizontal: ROW_INSET, paddingBottom: spacing.xxl },
-  banner: { marginTop: spacing.s, marginBottom: spacing.s },
-  sectionGap: { height: spacing.l },
-  headerButtons: { flexDirection: "row", alignItems: "center" },
-  rowText: { flex: 1, gap: 3, paddingVertical: 2 },
-  titleLine: { flexDirection: "row", alignItems: "center", gap: spacing.s },
-  name: { ...type.headline, color: c.label, flexShrink: 1 },
-  dim: { color: c.secondaryLabel },
-  meta: { ...type.subheadline, color: c.secondaryLabel },
-  arrival: { gap: 6, marginTop: spacing.s },
-  arrivalText: { ...type.subheadline, fontWeight: "600", color: c.label },
-  footerLine: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4 },
-  going: { ...type.footnote, fontWeight: "600", color: c.tint },
-  goingPast: { color: c.secondaryLabel },
-  footnote: { ...type.footnote, color: c.secondaryLabel },
+  screen: { flex: 1, backgroundColor: c.background },
+  bar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.s,
+    paddingHorizontal: ROW_INSET,
+    paddingBottom: spacing.m,
+  },
+  wordmark: {
+    ...type.display1,
+    textTransform: "uppercase",
+    color: c.label,
+    flex: 1,
+  },
+  barButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: c.fill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  content: { paddingHorizontal: ROW_INSET },
+  banner: { marginBottom: spacing.l },
+  sectionHeader: { marginTop: spacing.s },
+  sectionGap: { height: spacing.xl },
+  itemGap: { height: spacing.m },
+
+  // --- live hero ---
+  hero: { overflow: "hidden" },
+  heroBody: { padding: spacing.l, gap: spacing.s },
+  heroTop: { flexDirection: "row", alignItems: "center", gap: spacing.s },
+  heroStarted: { ...type.monoSmall, color: c.tertiaryLabel, flexShrink: 1 },
+  heroName: { ...type.display2, color: c.label },
+  heroCount: { flexDirection: "row", alignItems: "center", gap: spacing.s, marginTop: 2 },
+  heroTally: { ...type.monoLarge, color: c.label },
+  heroTallyOf: { color: c.tertiaryLabel },
+  heroArrived: { ...type.footnote, color: c.secondaryLabel },
+  heroDots: { flex: 1, alignItems: "flex-end" },
+  heroButton: {
+    marginHorizontal: spacing.l,
+    marginBottom: spacing.l,
+    marginTop: spacing.xs,
+  },
+
+  // --- upcoming ---
+  card: {
+    backgroundColor: c.surface,
+    borderRadius: radius.card,
+    borderWidth: 0.5,
+    borderColor: c.separator,
+    padding: spacing.l,
+    gap: spacing.s,
+  },
+  cardTop: { flexDirection: "row", alignItems: "flex-start", gap: spacing.m },
+  cardName: { ...type.display3, color: c.label, flex: 1 },
+  cardWhen: { ...type.monoSmall, color: c.tint, marginTop: 3 },
+  cardBottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.m,
+    marginTop: 2,
+  },
+  cardMeta: { ...type.footnote, color: c.tertiaryLabel },
+  goingChip: {
+    borderWidth: 0.5,
+    borderColor: c.tint,
+    borderRadius: radius.chip,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  goingText: {
+    ...type.eyebrow,
+    fontSize: 10,
+    letterSpacing: 1.3,
+    textTransform: "uppercase",
+    color: c.tint,
+  },
+
+  // --- past ---
+  past: {
+    minHeight: TOUCH_MIN,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.s,
+    paddingVertical: spacing.m,
+    paddingHorizontal: spacing.xs,
+    borderBottomWidth: 0.5,
+    borderBottomColor: c.separator,
+  },
+  pastName: { ...type.bodyMedium, color: c.secondaryLabel, flex: 1 },
+  pastMeta: { ...type.monoSmall, color: c.tertiaryLabel },
+
+  // --- shared ---
+  route: { flexDirection: "row", alignItems: "center", gap: 6 },
+  routeText: { ...type.footnote, color: c.secondaryLabel, flexShrink: 1 },
+  routeArrow: { ...type.footnote, color: c.tertiaryLabel },
 }));

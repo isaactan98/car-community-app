@@ -8,8 +8,11 @@
  * - Waze handoff for meetup, destination, and any member's last position (R5)
  * - degraded mode: renders the cached snapshot with an offline banner (R6)
  *
- * Laid out like Apple Maps: a full-bleed map under a transparent bar with
- * glass controls, and one floating Liquid Glass card for the readout.
+ * The readout is the biggest thing on the screen on purpose. This is the
+ * number a driver checks at 100km/h on the Second Link; it has to be legible
+ * without focusing on the phone. Below it, the crew strip lists the convoy in
+ * road order, left to right, so "where is everyone" is one glance rather than
+ * a list to read.
  */
 import {
   Camera,
@@ -22,7 +25,6 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
-  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -30,8 +32,8 @@ import {
 } from "react";
 import {
   AccessibilityInfo,
-  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -44,13 +46,13 @@ import type { LatLng, SnapshotMember } from "../api/types";
 import { MAP_STYLE_DARK_URL, MAP_STYLE_MUTED_URL } from "../config";
 import { activeSessionRunId, isSocketConnected, subscribeToRun } from "../live/liveSession";
 import { formatEta } from "../lib/eta";
-import { distanceToCarAhead, formatDistance } from "../lib/geo";
+import { distanceToCarAhead, formatDistance, haversineMeters } from "../lib/geo";
 import { initialLiveRunState, liveRunReducer } from "../lib/snapshotCache";
 import { formatAge, isStale } from "../lib/staleness";
 import type { ScreenProps } from "../navigation/types";
 import { useSession } from "../session/SessionContext";
 import { cacheRun, loadCachedRun, loadCachedSnapshot } from "../storage/storage";
-import { Avatar, Button, Loading, WazeButton } from "../ui/components";
+import { Avatar, Button, LiveBadge, Loading, WazeButton } from "../ui/components";
 import { haptic } from "../ui/haptics";
 import { Icon, type IconName } from "../ui/Icon";
 import {
@@ -60,8 +62,9 @@ import {
   personMarkerProps,
 } from "../ui/mapMarkers";
 import {
-  TOUCH_MIN,
+  elevation,
   makeStyles,
+  radius,
   spacing,
   type,
   usePalette,
@@ -70,7 +73,7 @@ import {
 } from "../ui/theme";
 import { useNow } from "../ui/useNow";
 
-/** Below this zoom, arrived members fold into the meetup pin (HIG › Maps). */
+/** Below this zoom, arrived members fold into the meetup pin. */
 const CLUSTER_ZOOM = 12;
 
 type Bounds = [west: number, south: number, east: number, north: number];
@@ -124,7 +127,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
   const [selected, setSelected] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [zoom, setZoom] = useState(10);
-  const [cardHeight, setCardHeight] = useState(220);
+  const [sheetHeight, setSheetHeight] = useState(240);
   const reduceMotion = useReduceMotion();
   const cameraRef = useRef<CameraRef>(null);
   const autoFitDone = useRef(false);
@@ -182,10 +185,10 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
   const me = members.find((m) => m.memberId === selfId);
   const selectedMember = positioned.find((m) => m.memberId === selected) ?? null;
 
-  // Leave room for the bar above and the floating card below.
+  // Leave room for the bar above and the sheet below.
   const fitPadding = {
     top: insets.top + 64,
-    bottom: cardHeight + insets.bottom + 24,
+    bottom: sheetHeight + 24,
     left: 48,
     right: 48,
   };
@@ -204,8 +207,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
     }
   };
 
-  const centerOnMe = () => {
-    const pos = me?.lastPosition;
+  const centerOn = (pos: LatLng | null | undefined) => {
     if (!pos) return;
     cameraRef.current?.flyTo({
       center: [pos.lng, pos.lat],
@@ -213,42 +215,6 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
       duration: reduceMotion ? 0 : 600,
     });
   };
-
-  // Bar buttons are created when their availability changes; route presses
-  // to the latest closures.
-  const actions = useRef({ fitAll, centerOnMe });
-  useLayoutEffect(() => {
-    actions.current = { fitAll, centerOnMe };
-  });
-
-  const hasMe = !!me?.lastPosition;
-  useLayoutEffect(() => {
-    const fit = () => actions.current.fitAll(600);
-    const locate = () => actions.current.centerOnMe();
-    navigation.setOptions({
-      unstable_headerRightItems: () => [
-        ...(hasMe
-          ? [
-              {
-                type: "button" as const,
-                label: "My Location",
-                icon: { type: "sfSymbol" as const, name: "location.fill" as const },
-                onPress: locate,
-              },
-            ]
-          : []),
-        {
-          type: "button" as const,
-          label: "Show Everyone",
-          icon: {
-            type: "sfSymbol" as const,
-            name: "arrow.up.left.and.arrow.down.right" as const,
-          },
-          onPress: fit,
-        },
-      ],
-    });
-  }, [navigation, hasMe]);
 
   const fitOnFirstPositions = useEffectEvent(() => fitAll(0));
   // Once the map is up and the first positions are in, frame everyone.
@@ -297,11 +263,13 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
     run.destination ? [run.meetup, run.destination] : [run.meetup],
   )!;
 
+  const hasMe = !!me?.lastPosition;
+
   return (
     <View style={s.root}>
       <Map
         style={StyleSheet.absoluteFill}
-        mapStyle={scheme === "dark" ? MAP_STYLE_DARK_URL : MAP_STYLE_MUTED_URL}
+        mapStyle={scheme === "night" ? MAP_STYLE_DARK_URL : MAP_STYLE_MUTED_URL}
         onDidFinishLoadingMap={() => setMapReady(true)}
         onRegionDidChange={(e) => setZoom(e.nativeEvent.zoom)}
         onPress={() => {
@@ -310,8 +278,8 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
           if (Date.now() - markerPressedAt.current > 400) setSelected(null);
         }}
         compass={false}
-        logoPosition={{ top: insets.top + 56, left: 12 }}
-        attributionPosition={{ top: insets.top + 56, left: 96 }}
+        logoPosition={{ top: insets.top + 60, left: 12 }}
+        attributionPosition={{ top: insets.top + 60, left: 96 }}
       >
         <Camera
           ref={cameraRef}
@@ -356,85 +324,105 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
         ) : null}
       </Map>
 
-      {Platform.OS !== "ios" ? (
-        <View style={[s.controls, { top: spacing.m }]}>
-          {hasMe ? (
-            <MapControl icon="locate" label="My location" onPress={centerOnMe} />
-          ) : null}
-          <MapControl icon="fitAll" label="Show everyone" onPress={() => fitAll(600)} />
-        </View>
-      ) : null}
-
-      <View
-        style={[s.cardWrap, { paddingBottom: insets.bottom + spacing.s }]}
-        pointerEvents="box-none"
-      >
-        <FloatingCard onLayout={(h) => setCardHeight(h)}>
-          <StatusLine
-            stale={stale}
-            snapshotAt={state.snapshotAt}
-            now={now}
-            onRetry={() => void load()}
+      <View style={[s.overbar, { paddingTop: insets.top + spacing.s }]} pointerEvents="box-none">
+        <GlassButton
+          icon="chevron"
+          label="Back"
+          flip
+          onPress={() => navigation.goBack()}
+        />
+        {!stale ? <LiveBadge style={s.liveOnMap} /> : null}
+        <View style={s.spacer} />
+        {hasMe ? (
+          <GlassButton
+            icon="locate"
+            label="My location"
+            onPress={() => centerOn(me?.lastPosition)}
           />
-
-          {selectedMember?.lastPosition ? (
-            <SelectedMember
-              member={selectedMember}
-              isSelf={selectedMember.memberId === selfId}
-              now={now}
-              onClose={() => setSelected(null)}
-            />
-          ) : (
-            <View
-              style={s.ahead}
-              accessible
-              accessibilityLabel={
-                carAhead
-                  ? `Car ahead: ${carAhead.displayName}, ${formatDistance(carAhead.distanceMeters)}`
-                  : undefined
-              }
-            >
-              <Text style={s.overline}>Car Ahead</Text>
-              <Text style={s.aheadValue} numberOfLines={1} maxFontSizeMultiplier={1.6}>
-                {carAhead
-                  ? `${carAhead.displayName} · ${formatDistance(carAhead.distanceMeters)}`
-                  : me?.lastPosition
-                    ? "Nobody Ahead"
-                    : "Finding You…"}
-              </Text>
-              {positioned.length === 0 ? (
-                <Text style={s.caption}>
-                  {state.connected
-                    ? "Nobody is sharing a position yet."
-                    : "No positions saved on this phone yet."}
-                </Text>
-              ) : null}
-            </View>
-          )}
-
-          <View style={s.waze}>
-            <Text style={s.overline}>Open in Waze</Text>
-            <View style={s.wazeRow}>
-              <WazeButton
-                lat={run.meetup.lat}
-                lng={run.meetup.lng}
-                label="Meetup"
-                place="the meetup"
-                style={s.flex}
-              />
-              {run.destination ? (
-                <WazeButton
-                  lat={run.destination.lat}
-                  lng={run.destination.lng}
-                  label="Destination"
-                  place="the destination"
-                  style={s.flex}
-                />
-              ) : null}
-            </View>
-          </View>
-        </FloatingCard>
+        ) : null}
+        <GlassButton icon="fitAll" label="Show everyone" onPress={() => fitAll(600)} />
       </View>
+
+      <Sheet
+        onLayout={(h) => setSheetHeight(h)}
+        style={{ paddingBottom: insets.bottom + spacing.l }}
+      >
+        <View style={s.grab} />
+
+        {selectedMember?.lastPosition ? (
+          <SelectedMember
+            member={selectedMember}
+            isSelf={selectedMember.memberId === selfId}
+            now={now}
+            onClose={() => setSelected(null)}
+          />
+        ) : (
+          <View
+            style={s.ahead}
+            accessible
+            accessibilityLabel={
+              carAhead
+                ? `Car ahead: ${carAhead.displayName}, ${formatDistance(carAhead.distanceMeters)}`
+                : "No car ahead of you"
+            }
+          >
+            {carAhead ? (
+              <>
+                <Text style={s.aheadNumber} numberOfLines={1} allowFontScaling={false}>
+                  {formatDistance(carAhead.distanceMeters)}
+                </Text>
+                <Text style={s.aheadWho} numberOfLines={2}>
+                  to <Text style={s.aheadName}>{carAhead.displayName}</Text>,{"\n"}the car
+                  ahead of you
+                </Text>
+              </>
+            ) : (
+              <Text style={s.aheadEmpty} numberOfLines={2}>
+                {!hasMe
+                  ? "Finding your position…"
+                  : positioned.length <= 1
+                    ? state.connected
+                      ? "Nobody else is sharing a position yet."
+                      : "No positions saved on this phone yet."
+                    : "Nobody ahead of you — you're leading."}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {positioned.length > 0 ? (
+          <CrewStrip
+            members={positioned}
+            me={me ?? null}
+            selfId={selfId}
+            selected={selected}
+            now={now}
+            onSelect={(m) => {
+              setSelected(m.memberId);
+              centerOn(m.lastPosition);
+            }}
+          />
+        ) : null}
+
+        <View style={s.wazeRow}>
+          <WazeButton
+            lat={(run.destination ?? run.meetup).lat}
+            lng={(run.destination ?? run.meetup).lng}
+            label={`Waze to ${(run.destination ?? run.meetup).label}`}
+            place={run.destination ? "the destination" : "the meetup"}
+            role="filled"
+            size="large"
+            style={s.flex}
+          />
+        </View>
+
+        <StatusLine
+          stale={stale}
+          snapshotAt={state.snapshotAt}
+          now={now}
+          onRetry={() => void load()}
+        />
+      </Sheet>
     </View>
   );
 }
@@ -451,17 +439,21 @@ function useReduceMotion(): boolean {
 }
 
 /**
- * Liquid Glass on iOS 26+ (functional layer only, per HIG › Materials); an
- * opaque card elsewhere and whenever Reduce Transparency is on.
+ * Liquid Glass on iOS 26+ — the one Apple material worth keeping, because
+ * floating controls over a map is exactly what it's for. Opaque everywhere
+ * else and whenever Reduce Transparency is on.
  */
-function FloatingCard({
+function Sheet({
   children,
   onLayout,
+  style,
 }: {
   children: ReactNode;
   onLayout: (height: number) => void;
+  style?: object;
 }) {
   const s = useStyles();
+  const scheme = useScheme();
   const [reduceTransparency, setReduceTransparency] = useState(false);
   useEffect(() => {
     void AccessibilityInfo.isReduceTransparencyEnabled().then(setReduceTransparency);
@@ -475,13 +467,102 @@ function FloatingCard({
   const layout = (e: { nativeEvent: { layout: { height: number } } }) =>
     onLayout(e.nativeEvent.layout.height);
   return glass ? (
-    <GlassView style={s.card} glassEffectStyle="regular" onLayout={layout}>
+    <GlassView
+      style={[s.sheet, elevation(scheme, 2), style]}
+      glassEffectStyle="regular"
+      onLayout={layout}
+    >
       {children}
     </GlassView>
   ) : (
-    <View style={[s.card, s.cardOpaque]} onLayout={layout}>
+    <View style={[s.sheet, s.sheetOpaque, elevation(scheme, 2), style]} onLayout={layout}>
       {children}
     </View>
+  );
+}
+
+/**
+ * The convoy in road order. Distance is from you, so the strip reads as
+ * "who's near me" without opening anything.
+ */
+function CrewStrip({
+  members,
+  me,
+  selfId,
+  selected,
+  now,
+  onSelect,
+}: {
+  members: SnapshotMember[];
+  me: SnapshotMember | null;
+  selfId: string;
+  selected: string | null;
+  now: number;
+  onSelect: (m: SnapshotMember) => void;
+}) {
+  const s = useStyles();
+  const myPos = me?.lastPosition ?? null;
+  const ordered = [...members].sort((a, b) => {
+    if (a.memberId === selfId) return -1;
+    if (b.memberId === selfId) return 1;
+    if (!myPos || !a.lastPosition || !b.lastPosition) return 0;
+    return (
+      haversineMeters(myPos, a.lastPosition) - haversineMeters(myPos, b.lastPosition)
+    );
+  });
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={s.strip}
+      accessibilityLabel="Everyone on this run"
+    >
+      {ordered.map((m) => {
+        const isSelf = m.memberId === selfId;
+        const pos = m.lastPosition!;
+        const memberStale = isStale(pos.ts, now);
+        const detail = memberStale
+          ? `${formatAge(pos.ts, now)} ago`
+          : isSelf
+            ? (m.carName ?? "You")
+            : m.status === "arrived"
+              ? "Arrived"
+              : myPos
+                ? formatDistance(haversineMeters(myPos, pos))
+                : formatEta(m.etaSeconds);
+        return (
+          <Pressable
+            key={m.memberId}
+            accessibilityRole="button"
+            accessibilityLabel={`${isSelf ? "You" : m.displayName}, ${detail}`}
+            accessibilityState={{ selected: m.memberId === selected }}
+            onPress={() => onSelect(m)}
+            style={({ pressed }) => [
+              s.chip,
+              m.memberId === selected && s.chipSelected,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Avatar
+              name={m.displayName}
+              size={26}
+              state={
+                isSelf ? "self" : m.status === "arrived" && !memberStale ? "arrived" : "default"
+              }
+            />
+            <View style={s.chipText}>
+              <Text style={s.chipName} numberOfLines={1}>
+                {isSelf ? "You" : m.displayName}
+              </Text>
+              <Text style={s.chipDetail} numberOfLines={1}>
+                {detail}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
@@ -501,20 +582,20 @@ function StatusLine({
   if (stale) {
     return (
       <View style={s.status} accessibilityRole="alert">
-        <Icon name="offline" size={15} color={c.yellow} />
+        <Icon name="offline" size={14} color={c.yellow} />
         <Text style={s.statusText} numberOfLines={2}>
           Offline
           {snapshotAt !== null ? ` · last update ${formatAge(snapshotAt, now)} ago` : ""}
         </Text>
-        <Button title="Retry" role="plain" size="regular" onPress={onRetry} />
+        <Button title="Retry" role="plain" size="small" onPress={onRetry} />
       </View>
     );
   }
   return (
     <View style={s.status}>
-      <View style={s.liveDot} />
-      <Text style={s.statusText}>
-        Live{snapshotAt !== null ? ` · updated ${formatAge(snapshotAt, now)} ago` : ""}
+      <View style={s.statusDot} />
+      <Text style={s.statusText} numberOfLines={1}>
+        Sharing your location — stops when the run ends.
       </Text>
     </View>
   );
@@ -543,12 +624,16 @@ function SelectedMember({
   return (
     <View style={s.selected}>
       <View style={s.selectedTop}>
-        <Avatar name={member.displayName} size={44} />
+        <Avatar
+          name={member.displayName}
+          size={42}
+          state={isSelf ? "self" : member.status === "arrived" ? "arrived" : "default"}
+        />
         <View style={s.flex}>
           <Text style={s.selectedName} numberOfLines={1}>
             {isSelf ? "You" : member.displayName}
           </Text>
-          <Text style={s.caption} numberOfLines={2}>
+          <Text style={s.selectedMeta} numberOfLines={2}>
             {[member.carName, status, `updated ${formatAge(pos.ts, now)} ago`]
               .filter(Boolean)
               .join(" · ")}
@@ -561,7 +646,7 @@ function SelectedMember({
           hitSlop={8}
           style={s.close}
         >
-          <Icon name="close" size={14} weight="bold" color={c.secondaryLabel} />
+          <Icon name="close" size={13} weight="bold" color={c.secondaryLabel} />
         </Pressable>
       </View>
       {!isSelf ? (
@@ -570,91 +655,137 @@ function SelectedMember({
           lng={pos.lng}
           label={`Waze to ${member.displayName}`}
           place={member.displayName}
-          size="large"
+          size="regular"
         />
       ) : null}
     </View>
   );
 }
 
-function MapControl({
+function GlassButton({
   icon,
   label,
+  flip,
   onPress,
 }: {
   icon: IconName;
   label: string;
+  /** Chevron points right by default; the back button needs it mirrored. */
+  flip?: boolean;
   onPress: () => void;
 }) {
   const s = useStyles();
   const c = usePalette();
+  const scheme = useScheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [s.control, pressed && { opacity: 0.7 }]}
+      style={({ pressed }) => [
+        s.glassButton,
+        elevation(scheme, 1),
+        pressed && { opacity: 0.7 },
+      ]}
     >
-      <Icon name={icon} size={20} color={c.label} />
+      <Icon
+        name={icon}
+        size={17}
+        weight="semibold"
+        color={c.label}
+        style={flip ? s.flip : undefined}
+      />
     </Pressable>
   );
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.background },
+  root: { flex: 1, backgroundColor: c.mapBackground },
   flex: { flex: 1 },
-  controls: { position: "absolute", right: spacing.m, gap: spacing.s },
-  control: {
-    width: TOUCH_MIN,
-    height: TOUCH_MIN,
-    borderRadius: TOUCH_MIN / 2,
+  spacer: { flex: 1 },
+  flip: { transform: [{ rotate: "180deg" }] },
+
+  overbar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.s,
+    paddingHorizontal: spacing.l,
+    paddingBottom: spacing.s,
+  },
+  liveOnMap: { marginLeft: spacing.xs },
+  glassButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: c.surface,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+    backgroundColor: c.glass,
+    borderWidth: 0.5,
+    borderColor: c.separator,
   },
-  cardWrap: {
+
+  sheet: {
     position: "absolute",
-    left: spacing.s,
-    right: spacing.s,
+    left: 0,
+    right: 0,
     bottom: 0,
-  },
-  card: {
-    borderRadius: 34,
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
     borderCurve: "continuous",
-    padding: spacing.l,
+    borderTopWidth: 0.5,
+    borderColor: c.separator,
+    paddingHorizontal: spacing.l,
+    paddingTop: spacing.s,
     gap: spacing.m,
     overflow: "hidden",
   },
-  cardOpaque: {
-    backgroundColor: c.surface,
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
+  sheetOpaque: { backgroundColor: c.glass },
+  grab: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: c.separator,
+    alignSelf: "center",
   },
-  status: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 22 },
-  statusText: { ...type.footnote, color: c.secondaryLabel, flex: 1 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.green },
-  ahead: { gap: 2 },
-  overline: {
-    ...type.footnote,
-    fontWeight: "600",
-    color: c.secondaryLabel,
-    textTransform: "uppercase",
+
+  ahead: { flexDirection: "row", alignItems: "flex-end", gap: spacing.m },
+  aheadNumber: { ...type.monoHuge, color: c.label },
+  aheadWho: { ...type.footnote, color: c.secondaryLabel, flex: 1, paddingBottom: 4 },
+  aheadName: { ...type.footnoteSemi, color: c.label },
+  aheadEmpty: { ...type.bodyMedium, color: c.secondaryLabel, flex: 1 },
+
+  strip: { gap: spacing.s, paddingVertical: 2 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.s,
+    paddingLeft: 5,
+    paddingRight: spacing.m,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: c.fill,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
-  aheadValue: { ...type.title2, color: c.label },
-  caption: { ...type.subheadline, color: c.secondaryLabel },
-  waze: { gap: spacing.s },
+  chipSelected: { borderColor: c.tint },
+  chipText: { gap: 0 },
+  chipName: { ...type.caption, fontSize: 12.5, color: c.label },
+  chipDetail: { ...type.monoSmall, fontSize: 10.5, color: c.secondaryLabel },
+
   wazeRow: { flexDirection: "row", gap: spacing.s },
+
+  status: { flexDirection: "row", alignItems: "center", gap: 7, minHeight: 20 },
+  statusDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: c.green },
+  statusText: { ...type.footnote, fontSize: 12, color: c.secondaryLabel, flex: 1 },
+
   selected: { gap: spacing.m },
   selectedTop: { flexDirection: "row", alignItems: "center", gap: spacing.m },
-  selectedName: { ...type.headline, color: c.label },
+  selectedName: { ...type.display3, color: c.label },
+  selectedMeta: { ...type.footnote, color: c.secondaryLabel },
   close: {
     width: 30,
     height: 30,

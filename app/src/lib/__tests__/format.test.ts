@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { compareEta, formatWhen, initials, relativeDay } from "../format";
+import {
+  compareEta,
+  formatShortDate,
+  formatWhen,
+  initials,
+  relativeDay,
+} from "../format";
 
 describe("relativeDay", () => {
   const now = new Date(2026, 8, 18, 9, 30);
@@ -33,6 +39,18 @@ describe("formatWhen", () => {
 
   it("echoes unparseable input", () => {
     expect(formatWhen("not a date", Date.now())).toBe("not a date");
+  });
+});
+
+describe("formatShortDate", () => {
+  it("renders day and month without a time", () => {
+    const out = formatShortDate(new Date(2026, 8, 12, 9, 0).toISOString());
+    expect(out).toMatch(/12/);
+    expect(out).not.toMatch(/:/);
+  });
+
+  it("echoes unparseable input", () => {
+    expect(formatShortDate("not a date")).toBe("not a date");
   });
 });
 

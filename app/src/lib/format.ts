@@ -36,6 +36,13 @@ export function formatWhen(iso: string, now: number): string {
   return `${day}, ${time}`;
 }
 
+/** Compact calendar date for the past-runs log: "12 Sep". Echoes bad input. */
+export function formatShortDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
 /** Board order for people on the way: soonest ETA first, unknown ETAs last. */
 export function compareEta(
   a: { etaSeconds: number | null; displayName: string },

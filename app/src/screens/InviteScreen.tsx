@@ -3,15 +3,17 @@
  * → POST /auth/join → token persisted. No other auth of any kind.
  * If the app was opened via a runs:// deep link carrying a code, prefill it.
  *
- * Laid out like Apple's own welcome screens: app icon, a large title, three
- * feature rows, then the form and a pinned Continue-style button.
+ * The screen leads with the group's own words — "set a place and go" — and
+ * with the three privacy promises, because for a 50-person WhatsApp group the
+ * only real question is whether this thing tracks them. The invite code is
+ * the hero field: it's the one thing the screen exists for.
  */
 import * as ExpoLinking from "expo-linking";
 import { useEffect, useRef, useState } from "react";
 import {
-  Image,
   KeyboardAvoidingView,
   Linking,
+  Platform,
   ScrollView,
   Text,
   TextInput,
@@ -21,34 +23,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError } from "../api/client";
 import { useSession } from "../session/SessionContext";
-import {
-  Button,
-  Group,
-  InlineBanner,
-  Screen,
-  TextFieldRow,
-} from "../ui/components";
+import { Button, InlineBanner, Screen, TextField } from "../ui/components";
 import { haptic } from "../ui/haptics";
-import { Icon, type IconName } from "../ui/Icon";
 import { makeStyles, spacing, type, usePalette } from "../ui/theme";
 
-const APP_ICON = require("../../assets/icon.png");
-
-const FEATURES: { icon: IconName; title: string; body: string }[] = [
+const PROMISES: { lead: string; rest: string }[] = [
   {
-    icon: "group",
-    title: "See Who's Coming",
-    body: "The arrival board shows who's at the meetup and who's still on the way.",
+    lead: "Location only during a run.",
+    rest: " It starts when the run goes live and stops the second it ends.",
   },
   {
-    icon: "map",
-    title: "Live Group Map",
-    body: "Glance at everyone during a drive, then hand off to Waze.",
+    lead: "Speed is never recorded.",
+    rest: " Not stored, not sent, not shown. Anywhere.",
   },
   {
-    icon: "lock",
-    title: "Private by Design",
-    body: "Your location is shared only during runs you join, and stops when they end.",
+    lead: "Invite only.",
+    rest: " No signup, no discovery, no strangers.",
   },
 ];
 
@@ -113,32 +103,37 @@ export default function InviteScreen() {
 
   return (
     <Screen>
-      <KeyboardAvoidingView style={s.flex} behavior="padding">
+      <KeyboardAvoidingView
+        style={s.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <ScrollView
-          contentContainerStyle={[s.content, { paddingTop: insets.top + spacing.xxl }]}
+          contentContainerStyle={[s.content, { paddingTop: insets.top + spacing.xl }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
         >
-          <Image
-            source={APP_ICON}
-            style={s.icon}
-            accessibilityIgnoresInvertColors
-            accessibilityLabel="Runs app icon"
-          />
-          <Text style={s.title} accessibilityRole="header" maxFontSizeMultiplier={1.6}>
-            Welcome to Runs
+          <View style={s.trail} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <View key={i} style={i < 3 ? s.dotOn : s.dotOff} />
+            ))}
+          </View>
+          <Text style={s.wordmark} accessibilityRole="header" maxFontSizeMultiplier={1.3}>
+            Runs
           </Text>
 
-          <View style={s.features}>
-            {FEATURES.map((f) => (
-              <View key={f.title} style={s.feature}>
-                <View style={s.featureIcon}>
-                  <Icon name={f.icon} size={30} color={c.tint} />
-                </View>
-                <View style={s.featureText}>
-                  <Text style={s.featureTitle}>{f.title}</Text>
-                  <Text style={s.featureBody}>{f.body}</Text>
-                </View>
+          <Text style={s.headline} maxFontSizeMultiplier={1.5}>
+            Set a place.{"\n"}
+            <Text style={s.headlineAccent}>Go.</Text>
+          </Text>
+
+          <View style={s.promises}>
+            {PROMISES.map((p) => (
+              <View key={p.lead} style={s.promise}>
+                <View style={s.promiseDot} />
+                <Text style={s.promiseText}>
+                  <Text style={s.promiseLead}>{p.lead}</Text>
+                  {p.rest}
+                </Text>
               </View>
             ))}
           </View>
@@ -148,26 +143,18 @@ export default function InviteScreen() {
               <InlineBanner
                 icon="warning"
                 tone="warning"
-                title="You've Been Signed Out"
+                title="You've been signed out"
                 body={signedOutReason}
               />
             </View>
           ) : null}
 
-          <Group
-            footer={
-              error ? (
-                <Text style={s.error} accessibilityRole="alert">
-                  {error}
-                </Text>
-              ) : (
-                "Ask the run organiser for an invite code or link."
-              )
-            }
-          >
-            <TextFieldRow
-              label="Invite Code"
+          <View style={s.fields}>
+            <TextField
+              label="Invite code"
               placeholder="RUNS-1A2B3C4D"
+              mono
+              hero
               autoCapitalize="characters"
               autoCorrect={false}
               autoComplete="off"
@@ -180,9 +167,9 @@ export default function InviteScreen() {
                 setError(null);
               }}
             />
-            <TextFieldRow
+            <TextField
               ref={nameRef}
-              label="Your Name"
+              label="Your name"
               placeholder="As the group knows you"
               autoCapitalize="words"
               autoComplete="name"
@@ -193,12 +180,18 @@ export default function InviteScreen() {
               onChangeText={setDisplayName}
               maxLength={40}
             />
-          </Group>
+          </View>
+
+          <Text style={[s.footnote, error ? { color: c.destructive } : null]}
+            accessibilityRole={error ? "alert" : undefined}
+          >
+            {error ?? "Ask the run organiser for an invite code or link."}
+          </Text>
         </ScrollView>
 
         <View style={[s.bottom, { paddingBottom: insets.bottom + spacing.m }]}>
           <Button
-            title={busy ? "Joining…" : "Join Group"}
+            title={busy ? "Joining…" : "Join the group"}
             onPress={submit}
             loading={busy}
             disabled={!ready}
@@ -212,27 +205,54 @@ export default function InviteScreen() {
 const useStyles = makeStyles((c) => ({
   flex: { flex: 1 },
   content: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
-  icon: {
-    width: 80,
-    height: 80,
-    borderRadius: 18,
-    borderCurve: "continuous",
-    alignSelf: "center",
+
+  trail: { flexDirection: "row", gap: 7, alignItems: "center", marginBottom: spacing.m },
+  dotOn: { width: 9, height: 9, borderRadius: 4.5, backgroundColor: c.tint },
+  dotOff: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    borderWidth: 1.5,
+    borderColor: c.tertiaryLabel,
   },
-  title: {
-    ...type.largeTitle,
+  wordmark: {
+    ...type.display1,
+    fontSize: 44,
+    lineHeight: 46,
+    letterSpacing: -1.4,
+    textTransform: "uppercase",
     color: c.label,
-    textAlign: "center",
-    marginTop: spacing.xl,
-    marginBottom: spacing.xxl,
   },
-  features: { gap: spacing.xl, marginBottom: spacing.xxl, paddingHorizontal: spacing.xs },
-  feature: { flexDirection: "row", alignItems: "center", gap: spacing.l },
-  featureIcon: { width: 40, alignItems: "center" },
-  featureText: { flex: 1, gap: 2 },
-  featureTitle: { ...type.headline, color: c.label },
-  featureBody: { ...type.subheadline, color: c.secondaryLabel },
-  notice: { marginBottom: spacing.xl },
-  error: { color: c.destructive },
+
+  headline: {
+    ...type.display2,
+    fontSize: 30,
+    lineHeight: 34,
+    color: c.label,
+    marginTop: spacing.xl,
+    marginBottom: spacing.xl,
+  },
+  headlineAccent: { color: c.tint },
+
+  promises: { gap: spacing.m, marginBottom: spacing.xl },
+  promise: { flexDirection: "row", gap: spacing.m },
+  promiseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: c.tint,
+    marginTop: 7,
+  },
+  promiseText: { ...type.callout, color: c.secondaryLabel, flex: 1 },
+  promiseLead: { ...type.calloutSemi, color: c.label },
+
+  notice: { marginBottom: spacing.l },
+  fields: { gap: spacing.m },
+  footnote: {
+    ...type.footnote,
+    color: c.tertiaryLabel,
+    marginTop: spacing.m,
+    paddingHorizontal: spacing.xs,
+  },
   bottom: { paddingHorizontal: spacing.xl, paddingTop: spacing.s },
 }));
