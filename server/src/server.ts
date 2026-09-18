@@ -24,7 +24,7 @@ export function createRunsServer(overrides: Partial<Config> = {}): RunsServer {
   const service = new Service(db, config, hub);
   service.seedInviteCodes(config.seedInviteCodes);
 
-  const app = createHttpApp(service);
+  const app = createHttpApp(service, config.enableWsDiag);
   const server = createServer(app);
   const ws = attachWs(server, service, hub, config);
 
