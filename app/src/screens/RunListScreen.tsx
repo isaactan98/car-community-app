@@ -4,62 +4,101 @@
  * (R6) — never a blank screen.
  */
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import {
+  Platform,
   Pressable,
   RefreshControl,
   SectionList,
-  StyleSheet,
   Text,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { listRuns } from "../api/client";
-import type { Run } from "../api/types";
+import type { Run, RunState } from "../api/types";
+import { formatWhen } from "../lib/format";
 import { arrivalCounts } from "../lib/snapshotCache";
 import type { ScreenProps } from "../navigation/types";
 import { useSession } from "../session/SessionContext";
 import { cacheRunList, loadCachedRunList } from "../storage/storage";
 import {
+  ArrivalDots,
   Button,
+  EmptyState,
+  ListRow,
+  LiveBadge,
   Loading,
   OfflineBanner,
-  Screen,
-  StatePill,
+  SectionHeader,
+  rowPosition,
+  type RowPosition,
 } from "../ui/components";
-import { colors, spacing } from "../ui/theme";
+import { Icon, type IconName } from "../ui/Icon";
+import { ROW_INSET, TOUCH_MIN, makeStyles, spacing, type, usePalette } from "../ui/theme";
 import { useNow } from "../ui/useNow";
 
-const STATE_ORDER: Run["state"][] = ["active", "upcoming", "ended"];
+const SECTIONS: { state: RunState; title: string }[] = [
+  { state: "active", title: "Happening Now" },
+  { state: "upcoming", title: "Upcoming" },
+  { state: "ended", title: "Past Runs" },
+];
 
 function groupRuns(runs: Run[]): { title: string; data: Run[] }[] {
-  return STATE_ORDER.map((state) => ({
-    title:
-      state === "active" ? "Active" : state === "upcoming" ? "Upcoming" : "Ended",
-    data: runs.filter((r) => r.state === state),
-  })).filter((s) => s.data.length > 0);
+  const byStart = (a: Run, b: Run) => a.startsAt.localeCompare(b.startsAt);
+  return SECTIONS.map(({ state, title }) => {
+    const data = runs.filter((r) => r.state === state).sort(byStart);
+    // Past runs: most recent first.
+    if (state === "ended") data.reverse();
+    return { title, data };
+  }).filter((s) => s.data.length > 0);
 }
 
-function formatStartsAt(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function isGoing(run: Run, selfId: string): boolean {
+  return run.attendees.some((a) => a.memberId === selfId && a.status !== "left");
 }
 
 export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
-  const { member, logout } = useSession();
-  const insets = useSafeAreaInsets();
+  const s = useStyles();
+  const c = usePalette();
+  const { member } = useSession();
+  const selfId = member?.id ?? "";
   const now = useNow(30_000);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [offline, setOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  useLayoutEffect(() => {
+    const newRun = () => navigation.navigate("CreateRun");
+    const profile = () => navigation.navigate("Profile");
+    navigation.setOptions({
+      // iOS: native bar buttons with SF Symbols (Liquid Glass on iOS 26).
+      unstable_headerRightItems: () => [
+        {
+          type: "button",
+          label: "Profile",
+          icon: { type: "sfSymbol", name: "person.crop.circle" },
+          onPress: profile,
+          accessibilityLabel: "Profile and garage",
+        },
+        {
+          type: "button",
+          label: "New Run",
+          icon: { type: "sfSymbol", name: "plus" },
+          onPress: newRun,
+          accessibilityLabel: "New run",
+        },
+      ],
+      headerRight:
+        Platform.OS === "ios"
+          ? undefined
+          : () => (
+              <View style={s.headerButtons}>
+                <HeaderIcon icon="add" label="New run" onPress={newRun} />
+                <HeaderIcon icon="profile" label="Profile and garage" onPress={profile} />
+              </View>
+            ),
+    });
+  }, [navigation, s]);
 
   const load = useCallback(async () => {
     try {
@@ -86,123 +125,169 @@ export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
     setRefreshing(false);
   };
 
-  if (runs === null) return <Loading label="Loading runs…" />;
+  if (runs === null) return <Loading />;
 
   return (
-    <Screen>
-      <OfflineBanner visible={offline} lastUpdatedAt={null} now={now} />
-      <SectionList
-        sections={groupRuns(runs)}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refresh}
-            tintColor={colors.accent}
-          />
-        }
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionHeader}>{section.title}</Text>
-        )}
-        renderItem={({ item }) => {
-          const { arrived, total } = arrivalCounts(item);
-          return (
-            <Pressable
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-              onPress={() => navigation.navigate("RunDetail", { runId: item.id })}
-            >
-              <View style={styles.rowTop}>
-                <Text style={styles.runName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <StatePill state={item.state} />
-              </View>
-              <Text style={styles.runMeta}>
-                {formatStartsAt(item.startsAt)} · {item.meetup.label}
-              </Text>
-              <Text style={styles.runMeta}>
-                {total} joined
-                {item.state !== "upcoming" ? ` · ${arrived}/${total} arrived` : ""}
-              </Text>
-            </Pressable>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>
-              No runs yet. Create the first one.
-            </Text>
+    <SectionList
+      style={s.list}
+      contentInsetAdjustmentBehavior="automatic"
+      sections={groupRuns(runs)}
+      keyExtractor={(item) => item.id}
+      contentContainerStyle={s.content}
+      stickySectionHeadersEnabled={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.secondaryLabel} />
+      }
+      ListHeaderComponent={
+        offline ? (
+          <View style={s.banner}>
+            <OfflineBanner visible lastUpdatedAt={null} now={now} onRetry={() => void refresh()} />
           </View>
-        }
-      />
-      <View
-        style={[
-          styles.footer,
-          { paddingBottom: spacing.l + insets.bottom },
-        ]}
-      >
-        <View style={styles.footerRow}>
-          <View style={styles.footerGrow}>
-            <Button
-              title="+ New run"
-              onPress={() => navigation.navigate("CreateRun")}
-            />
-          </View>
+        ) : null
+      }
+      renderSectionHeader={({ section }) => <SectionHeader title={section.title} prominent />}
+      renderSectionFooter={() => <View style={s.sectionGap} />}
+      renderItem={({ item, index, section }) => (
+        <RunRow
+          run={item}
+          going={isGoing(item, selfId)}
+          now={now}
+          position={rowPosition(index, section.data.length)}
+          onPress={() => navigation.navigate("RunDetail", { runId: item.id })}
+        />
+      )}
+      ListEmptyComponent={
+        <EmptyState
+          icon="car"
+          title="No Runs Yet"
+          body="Plan a meetup, then share the invite link with your group."
+        >
           <Button
-            title="Garage"
-            kind="secondary"
-            onPress={() => navigation.navigate("Garage")}
+            title="New Run"
+            icon="add"
+            size="regular"
+            onPress={() => navigation.navigate("CreateRun")}
           />
-        </View>
-        <Pressable onPress={() => void logout()}>
-          <Text style={styles.signout}>
-            Signed in as {member?.displayName ?? "?"} — leave group
-          </Text>
-        </Pressable>
-      </View>
-    </Screen>
+        </EmptyState>
+      }
+    />
   );
 }
 
-const styles = StyleSheet.create({
-  listContent: { padding: spacing.l, paddingBottom: 120 },
-  sectionHeader: {
-    color: colors.textDim,
-    fontWeight: "800",
-    fontSize: 13,
-    textTransform: "uppercase",
-    marginTop: spacing.m,
-    marginBottom: spacing.s,
-  },
-  row: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: spacing.l,
-    marginBottom: spacing.m,
-    gap: spacing.xs,
-  },
-  rowPressed: { opacity: 0.7 },
-  rowTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.s,
-  },
-  runName: { color: colors.text, fontSize: 17, fontWeight: "700", flex: 1 },
-  runMeta: { color: colors.textDim, fontSize: 13 },
-  empty: { padding: spacing.xl, alignItems: "center" },
-  emptyText: { color: colors.textDim },
-  footer: {
-    padding: spacing.l,
-    gap: spacing.m,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.bg,
-  },
-  footerRow: { flexDirection: "row", gap: spacing.m, alignItems: "center" },
-  footerGrow: { flex: 1 },
-  signout: { color: colors.textDim, textAlign: "center", fontSize: 12 },
-});
+function RunRow({
+  run,
+  going,
+  now,
+  position,
+  onPress,
+}: {
+  run: Run;
+  going: boolean;
+  now: number;
+  position: RowPosition;
+  onPress: () => void;
+}) {
+  const s = useStyles();
+  const c = usePalette();
+  const { arrived, total } = arrivalCounts(run);
+  const active = run.state === "active";
+  const ended = run.state === "ended";
+  const when = formatWhen(run.startsAt, now);
+  const route = run.destination
+    ? `${run.meetup.label} → ${run.destination.label}`
+    : run.meetup.label;
+  const countLabel = active
+    ? `${arrived} of ${total} arrived`
+    : `${total} ${ended ? "went" : "going"}`;
+
+  return (
+    <ListRow
+      position={position}
+      onPress={onPress}
+      chevron
+      accessibilityLabel={[
+        run.name,
+        active ? "live now" : null,
+        when,
+        route,
+        countLabel,
+        going ? (ended ? "you went" : "you're going") : null,
+      ]
+        .filter(Boolean)
+        .join(", ")}
+    >
+      <View style={s.rowText}>
+        <View style={s.titleLine}>
+          <Text style={[s.name, ended && s.dim]} numberOfLines={3}>
+            {run.name}
+          </Text>
+          {active ? <LiveBadge /> : null}
+        </View>
+        <Text style={s.meta}>{when}</Text>
+        <Text style={s.meta} numberOfLines={2}>
+          {route}
+        </Text>
+        {active && total > 0 ? (
+          <View style={s.arrival}>
+            <ArrivalDots arrived={arrived} total={total} />
+            <Text style={s.arrivalText}>{countLabel}</Text>
+          </View>
+        ) : null}
+        <View style={s.footerLine}>
+          {going ? (
+            <>
+              <Icon name="arrived" size={14} color={ended ? c.secondaryLabel : c.tint} />
+              <Text style={[s.going, ended && s.goingPast]}>
+                {ended ? "You went" : "You're going"}
+              </Text>
+              {!active ? <Text style={s.footnote}>·</Text> : null}
+            </>
+          ) : null}
+          {!active ? <Text style={s.footnote}>{countLabel}</Text> : null}
+        </View>
+      </View>
+    </ListRow>
+  );
+}
+
+function HeaderIcon({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+}) {
+  const c = usePalette();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      hitSlop={8}
+      style={{ minWidth: TOUCH_MIN, minHeight: TOUCH_MIN, alignItems: "center", justifyContent: "center" }}
+    >
+      <Icon name={icon} size={24} color={c.label} />
+    </Pressable>
+  );
+}
+
+const useStyles = makeStyles((c) => ({
+  list: { flex: 1, backgroundColor: c.background },
+  content: { paddingHorizontal: ROW_INSET, paddingBottom: spacing.xxl },
+  banner: { marginTop: spacing.s, marginBottom: spacing.s },
+  sectionGap: { height: spacing.l },
+  headerButtons: { flexDirection: "row", alignItems: "center" },
+  rowText: { flex: 1, gap: 3, paddingVertical: 2 },
+  titleLine: { flexDirection: "row", alignItems: "center", gap: spacing.s },
+  name: { ...type.headline, color: c.label, flexShrink: 1 },
+  dim: { color: c.secondaryLabel },
+  meta: { ...type.subheadline, color: c.secondaryLabel },
+  arrival: { gap: 6, marginTop: spacing.s },
+  arrivalText: { ...type.subheadline, fontWeight: "600", color: c.label },
+  footerLine: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4 },
+  going: { ...type.footnote, fontWeight: "600", color: c.tint },
+  goingPast: { color: c.secondaryLabel },
+  footnote: { ...type.footnote, color: c.secondaryLabel },
+}));

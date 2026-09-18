@@ -5,7 +5,9 @@ export type RootStackParamList = {
   CreateRun: undefined;
   RunDetail: { runId: string };
   LiveMap: { runId: string };
-  Garage: undefined;
+  Profile: undefined;
+  /** RSVP car picker, presented as a native sheet. */
+  CarPicker: { runId: string; currentCar: string | null };
 };
 
 export type ScreenProps<T extends keyof RootStackParamList> =

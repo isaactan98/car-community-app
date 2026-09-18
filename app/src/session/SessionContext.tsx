@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { joinGroup, setAuthToken } from "../api/client";
+import { joinGroup, setAuthToken, setUnauthorizedHandler } from "../api/client";
 import type { Member } from "../api/types";
 import { stopLiveSession } from "../live/liveSession";
 import {
@@ -26,6 +26,8 @@ interface SessionValue {
   ready: boolean;
   token: string | null;
   member: Member | null;
+  /** Why the user was signed out, shown on the invite screen. */
+  signedOutReason: string | null;
   join: (inviteCode: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -36,6 +38,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [member, setMember] = useState<Member | null>(null);
+  const [signedOutReason, setSignedOutReason] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +64,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const res = await joinGroup(inviteCode.trim(), displayName.trim());
     setAuthToken(res.token);
     await saveSession(res.token, res.member);
+    setSignedOutReason(null);
     setToken(res.token);
     setMember(res.member);
   }, []);
@@ -73,9 +77,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setMember(null);
   }, []);
 
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setSignedOutReason(
+        "Your sign-in is no longer valid on the server. Join again with an invite code.",
+      );
+      void logout();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
+
   const value = useMemo(
-    () => ({ ready, token, member, join, logout }),
-    [ready, token, member, join, logout],
+    () => ({ ready, token, member, signedOutReason, join, logout }),
+    [ready, token, member, signedOutReason, join, logout],
   );
 
   return (

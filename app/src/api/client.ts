@@ -28,6 +28,16 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
+let onUnauthorized: (() => void) | null = null;
+
+/**
+ * Called when the server rejects our token (revoked, or the server's DB was
+ * reset). Without this a dead token looks exactly like "offline" forever.
+ */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
+}
+
 async function request<T>(
   path: string,
   options: { method?: string; body?: unknown } = {},
@@ -56,6 +66,10 @@ async function request<T>(
   }
 
   if (!res.ok) {
+    // /auth/join answers 401 for a bad invite code — that's not a session.
+    if (res.status === 401 && authToken && path !== "/auth/join") {
+      onUnauthorized?.();
+    }
     let detail = "";
     try {
       detail = await res.text();

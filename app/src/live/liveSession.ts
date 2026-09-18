@@ -83,6 +83,23 @@ export function subscribeLiveSession(listener: Listener): () => void {
   };
 }
 
+/**
+ * Subscribe on behalf of one run's screen. Socket messages belong to the
+ * active session's run only — letting them through elsewhere would paint that
+ * run's board (and its `runState`) onto a different run, which can flip an
+ * upcoming run to "active" and start sharing into it (R7). Connection and
+ * sharing changes also pass when no session is active, since a stop affects
+ * every screen.
+ */
+export function subscribeToRun(runId: string, listener: Listener): () => void {
+  return subscribeLiveSession((event) => {
+    const active = session?.runId ?? null;
+    if (active === runId || (event.kind !== "message" && active === null)) {
+      listener(event);
+    }
+  });
+}
+
 export function activeSessionRunId(): string | null {
   return session?.runId ?? null;
 }

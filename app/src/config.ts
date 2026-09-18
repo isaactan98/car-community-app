@@ -24,8 +24,12 @@ export const API_BASE = `${SERVER_URL}/api/v1`;
 /** WebSocket endpoint, per docs/CONTRACT.md. */
 export const WS_BASE = `${SERVER_URL.replace(/^http/, "ws")}/ws`;
 
-/** Free OpenFreeMap style — no Mapbox / Google Maps SDKs (hard constraint). */
+/** Free OpenFreeMap styles — no Mapbox / Google Maps SDKs (hard constraint). */
 export const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+/** Dark variant, used whenever the system is in Dark Mode. */
+export const MAP_STYLE_DARK_URL = "https://tiles.openfreemap.org/styles/dark";
+/** Muted light style for the live map, so people stand out (HIG › Maps). */
+export const MAP_STYLE_MUTED_URL = "https://tiles.openfreemap.org/styles/positron";
 
 /** REST request timeout — fail fast so degraded mode kicks in quickly. */
 export const REQUEST_TIMEOUT_MS = 8000;
