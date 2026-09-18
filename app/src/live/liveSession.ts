@@ -79,6 +79,8 @@ interface SessionState {
 }
 
 let session: SessionState | null = null;
+/** In-flight `startLiveSession` call, so two effects cannot open two sockets. */
+let starting: { runId: string; promise: Promise<StartResult> } | null = null;
 const listeners = new Set<Listener>();
 
 /**
@@ -538,6 +540,34 @@ export async function startLiveSession(
   if (session?.runId === run.id) {
     return { started: true, background: session.usingBackgroundTask };
   }
+  /**
+   * Coalesce concurrent starts for the same run.
+   *
+   * The `session?.runId` guard above is not enough: RunDetail's effect can fire
+   * twice in a row (the run object changes identity on RSVP, then again on the
+   * refetch), and `session` is only assigned *after* the `await` below. Both
+   * calls therefore saw `session === null`, both built a state, and both opened
+   * a socket — the second overwrote `session` while the first's socket stayed
+   * connected and kept sending. That is the pair of `ws connected` lines,
+   * milliseconds apart for one member, in the server log.
+   */
+  if (starting && starting.runId === run.id) return starting.promise;
+  const promise = beginSession(run, token, selfId, hooks);
+  starting = { runId: run.id, promise };
+  try {
+    return await promise;
+  } finally {
+    if (starting?.promise === promise) starting = null;
+  }
+}
+
+/** The actual start, serialised by `startLiveSession`'s in-flight guard. */
+async function beginSession(
+  run: Run,
+  token: string,
+  selfId: string,
+  hooks?: StartHooks,
+): Promise<StartResult> {
   // One live run at a time.
   await stopLiveSession();
 
