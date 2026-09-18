@@ -11,6 +11,45 @@ declare module 'express-serve-static-core' {
 export function createHttpApp(service: Service): express.Express {
   const app = express();
   app.disable('x-powered-by');
+
+  /**
+   * Access log — one line per REST call.
+   *
+   * Without it there is no way to answer "is this phone talking to the server
+   * at all?", which is the first question whenever a device sits in degraded
+   * mode: the app falls back to its cache and looks *almost* normal, so a
+   * phone that cannot reach the server is nearly indistinguishable from one
+   * that can. Paired with the `ws upgrade rejected` lines, this separates "the
+   * app never got through" from "it got through and we turned it away".
+   *
+   * `path` deliberately excludes the query string (the WS token lives there),
+   * and `ua` is what tells one tester's phone from another — CFNetwork/Darwin
+   * for iOS, okhttp for Android.
+   */
+  app.use((req, res, next) => {
+    // The Docker healthcheck hits /healthz every 30s; logging it buries
+    // everything that matters.
+    if (req.path === '/healthz') return next();
+    const startedAt = Date.now();
+    // Capture the path now: by the time `finish` fires, Express has rewritten
+    // `req.url` relative to whichever router matched, so reading it late gives
+    // "/auth/join" for one request and "/api/v1/auth/join" for the next.
+    // `originalUrl` is stable; the split drops the query string with it.
+    const path = req.originalUrl.split('?')[0];
+    res.on('finish', () => {
+      log.info('http', {
+        method: req.method,
+        path,
+        status: res.statusCode,
+        ms: Date.now() - startedAt,
+        remote: req.socket.remoteAddress ?? null,
+        memberId: req.member?.id ?? null,
+        ua: (req.header('user-agent') ?? '').slice(0, 120) || null,
+      });
+    });
+    next();
+  });
+
   app.use(express.json({ limit: '64kb' }));
 
   /** Unauthenticated liveness probe for Docker/monitoring. */
