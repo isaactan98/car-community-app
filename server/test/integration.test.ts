@@ -399,3 +399,28 @@ describe('sweeps: auto-end + retention', () => {
     expect(count()).toBe(0);
   });
 });
+
+describe('ws reachability probe (/__diag/ws)', () => {
+  it('is absent unless explicitly enabled', async () => {
+    // It is unauthenticated by necessity (a browser opens it), so the default
+    // must be off — otherwise the Cloudflare tunnel cutover would publish it.
+    const res = await fetch(`http://127.0.0.1:${t.port}/__diag/ws`);
+    expect(res.status).toBe(404);
+  });
+
+  it('serves a page that dials /ws when enabled', async () => {
+    const diag = await startTestServer({ enableWsDiag: true });
+    try {
+      const res = await fetch(`http://127.0.0.1:${diag.port}/__diag/ws`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/text\/html/);
+      const body = await res.text();
+      expect(body).toContain("'/ws'");
+      // The probe must never carry a credential — that is what makes it safe
+      // to open in a browser.
+      expect(body).not.toContain('token=');
+    } finally {
+      await diag.stop();
+    }
+  });
+});

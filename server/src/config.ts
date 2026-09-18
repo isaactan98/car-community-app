@@ -19,6 +19,13 @@ export interface Config {
   retentionMs: number;
   /** Geofence radius around the meetup point, in meters. */
   geofenceRadiusM: number;
+  /**
+   * Serve the unauthenticated `/__diag/ws` reachability page. Off by default:
+   * it is a debugging aid for the tailnet phase, and must not become a public
+   * surface once the Cloudflare tunnel cutover lands (see "Release Gates" in
+   * runs-v1-spec.md).
+   */
+  enableWsDiag: boolean;
 }
 
 function intEnv(name: string, fallback: number): number {
@@ -43,6 +50,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     autoEndAfterMs: intEnv('AUTO_END_AFTER_MS', 2 * 60 * 60 * 1000),
     retentionMs: intEnv('RETENTION_MS', 24 * 60 * 60 * 1000),
     geofenceRadiusM: intEnv('GEOFENCE_RADIUS_M', 150),
+    enableWsDiag: (process.env.ENABLE_WS_DIAG ?? '') === '1',
     ...overrides,
   };
 }

@@ -8,7 +8,45 @@ declare module 'express-serve-static-core' {
   }
 }
 
-export function createHttpApp(service: Service): express.Express {
+/**
+ * Static page for `/__diag/ws`. Deliberately dependency-free and inline: it has
+ * to run in an old phone browser with no network beyond the server serving it.
+ */
+const WS_DIAG_PAGE = `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Runs — WebSocket probe</title>
+<style>
+  body{font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:24px;background:#0B0D11;color:#E6E9EF}
+  h1{font-size:18px;margin:0 0 4px}
+  p{color:#97A0AE;margin:0 0 20px;font-size:14px}
+  #r{padding:16px;border-radius:12px;background:#1A2029;font-family:ui-monospace,monospace;font-size:14px;white-space:pre-wrap;word-break:break-all}
+  .ok{color:#5AD18F}.bad{color:#FF6B6B}.wait{color:#F5C451}
+</style>
+<h1>WebSocket probe</h1>
+<p>Dials this server's /ws with no token. "Refused (401)" is the good answer — it means the upgrade reached the server.</p>
+<div id="r" class="wait">connecting…</div>
+<script>
+  var el = document.getElementById('r');
+  var url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+  var done = false;
+  function show(cls, text){ if(done) return; done = true; el.className = cls; el.textContent = text; }
+  try {
+    var ws = new WebSocket(url);
+    ws.onopen = function(){ show('bad', 'OPENED without a token — unexpected.\\n' + url); ws.close(); };
+    ws.onclose = function(e){
+      // A refused upgrade closes without ever opening. Either way the bytes
+      // reached the server, which is the whole point of this page.
+      show('ok', 'Reached the server.\\nClosed code ' + e.code + (e.reason ? ' (' + e.reason + ')' : '') + '\\n' + url + '\\n\\nNow check the server log for "ws upgrade rejected".');
+    };
+    ws.onerror = function(){ show('bad', 'Could not reach the server.\\n' + url + '\\n\\nThe upgrade never got through — network path or client, not the server.'); };
+    setTimeout(function(){ show('bad', 'Timed out after 10s.\\n' + url); }, 10000);
+  } catch (err) {
+    show('bad', 'WebSocket constructor threw: ' + err);
+  }
+</script>`;
+
+export function createHttpApp(service: Service, enableWsDiag = false): express.Express {
   const app = express();
   app.disable('x-powered-by');
 
@@ -44,6 +82,13 @@ export function createHttpApp(service: Service): express.Express {
         ms: Date.now() - startedAt,
         remote: req.socket.remoteAddress ?? null,
         memberId: req.member?.id ?? null,
+        // `host` is the address the client actually dialled. Two phones that
+        // disagree here were built against different EXPO_PUBLIC_SERVER_URLs,
+        // which no amount of staring at the app can tell you; `proto` is set
+        // only when something is proxying, which would explain REST arriving
+        // while a WebSocket upgrade quietly does not.
+        host: req.header('host') ?? null,
+        proto: req.header('x-forwarded-proto') ?? null,
         ua: (req.header('user-agent') ?? '').slice(0, 120) || null,
       });
     });
@@ -56,6 +101,26 @@ export function createHttpApp(service: Service): express.Express {
   app.get('/healthz', (_req, res) => {
     res.json({ ok: true });
   });
+
+  /**
+   * WebSocket reachability probe, opened in a phone's browser.
+   *
+   * `/healthz` proves a device can reach us over HTTP, and the access log
+   * proves the app can. Neither says whether a *WebSocket upgrade* from that
+   * device survives the path — which is the question when REST from a phone
+   * lands but its socket never appears in the log at all.
+   *
+   * The page dials `/ws` with no token. A 401 is the *success* case: the
+   * upgrade reached us and was refused on credentials, which the `ws upgrade
+   * rejected` log line records. Silence on both ends means the upgrade never
+   * arrived, and the problem is the network path or the client, not this
+   * server. Carrying no token is what makes it safe to open in a browser.
+   */
+  if (enableWsDiag) {
+    app.get('/__diag/ws', (_req, res) => {
+      res.type('html').send(WS_DIAG_PAGE);
+    });
+  }
 
   const api = express.Router();
   app.use('/api/v1', api);
