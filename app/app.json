@@ -14,17 +14,6 @@
         "NSLocalNetworkUsageDescription": "Runs connects to your group's server, which may be on your local network.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        },
-        "UIApplicationSceneManifest": {
-          "UIApplicationSupportsMultipleScenes": false,
-          "UISceneConfigurations": {
-            "UIWindowSceneSessionRoleApplication": [
-              {
-                "UISceneConfigurationName": "Default Configuration",
-                "UISceneDelegateClassName": "$(PRODUCT_MODULE_NAME).SceneDelegate"
-              }
-            ]
-          }
         }
       }
     },
@@ -73,6 +62,9 @@
         {
           "android": {
             "usesCleartextTraffic": true
+          },
+          "ios": {
+            "enableSceneSupport": true
           }
         }
       ]

@@ -40,6 +40,9 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx vitest run
+      # Catches an eas.json profile that would bundle a localhost server URL,
+      # at review time rather than on someone's phone.
+      - run: npm run check:server-url
 
   relay-smoke:
     name: M0 relay smoke test

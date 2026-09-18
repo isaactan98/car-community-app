@@ -1,0 +1,63 @@
+name: App iOS (EAS build)
+
+# iOS binaries need macOS + Apple signing, which this repo has no runner for.
+# EAS builds them in Expo's cloud, so a release can be cut from Windows, Linux
+# or this workflow with no Mac in the loop.
+#
+# Requires, one time:
+#   - secrets.EXPO_TOKEN  — Expo access token (expo.dev → account → access tokens)
+#   - an Apple Developer Program membership on the Expo account, so EAS can
+#     issue the ad-hoc provisioning profile that lets the build install on a
+#     phone. A free Apple ID cannot do this without Xcode; see
+#     docs/ios-build.md.
+#
+# The server URL is NOT taken from the workflow env: EAS bundles on its own
+# machines and reads `env` from app/eas.json. The check below fails the run
+# before spending a build credit on a bundle pointing at localhost.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "eas.json build profile"
+        type: choice
+        options: [preview, development, production]
+        default: preview
+
+jobs:
+  ios:
+    name: EAS build (iOS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+
+      # Cheap guard, expensive mistake: a bundle built against localhost
+      # installs and runs, and only fails once it is on someone's phone.
+      - name: Check the server URL the bundle will carry
+        run: npm run check:server-url
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build
+        run: eas build --platform ios --profile "${{ inputs.profile }}" --non-interactive --no-wait
+
+      - name: Where to find it
+        run: |
+          echo "Build queued. Watch it, and get the install link, at:" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://expo.dev/accounts/[your-account]/projects/runs/builds" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Open that link on the iPhone to install — the device must be registered" >> "$GITHUB_STEP_SUMMARY"
+          echo "on the ad-hoc profile (\`eas device:create\`)." >> "$GITHUB_STEP_SUMMARY"

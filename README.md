@@ -32,7 +32,8 @@ npm run dev                # http://localhost:4000, SQLite at data/runs.db
 npm test                   # 26 integration tests (HTTP + WS)
 ```
 
-**App** — needs a dev build (Expo Go can't run MapLibre or background location):
+**App** — needs a dev build (Expo Go can't run MapLibre or background location).
+For **iOS without a Mac**, see [docs/ios-build.md](docs/ios-build.md):
 
 ```sh
 cd app
@@ -100,6 +101,7 @@ debug key: installable, but don't distribute those to the group.
 | `ci.yml` | every push / PR | server tests, app typecheck + tests, relay smoke test |
 | `server-docker.yml` | push to `main` touching `server/` | build + push `server:latest` to GHCR |
 | `app-apk.yml` | push to `main` touching `app/` | build APK, upload as artifact |
+| `app-ios.yml` | manual (Actions tab) | build + sign iOS via EAS — needs no Mac, see [docs/ios-build.md](docs/ios-build.md) |
 | `release.yml` | tag `v*` | semver Docker image + signed APK attached to a GitHub Release |
 
 ## Releasing

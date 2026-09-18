@@ -37,6 +37,11 @@ jobs:
 
       - run: npm ci
 
+      # The repository variable above silently falls back to localhost when
+      # unset, which produces an APK that installs and then reaches nothing.
+      - name: Check the server URL the bundle will carry
+        run: node scripts/check-server-url.mjs --env
+
       - name: Generate android project (Expo prebuild)
         run: npx expo prebuild --platform android --no-install
         env:
