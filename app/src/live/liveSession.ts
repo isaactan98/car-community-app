@@ -26,7 +26,13 @@ import type {
   ServerMessage,
   SnapshotMessage,
 } from "../api/types";
-import { ETA_SEND_INTERVAL_MS, WS_BASE } from "../config";
+import {
+  ETA_SEND_INTERVAL_MS,
+  SERVER_URL,
+  WS_BASE,
+  WS_INBOUND_TIMEOUT_MS,
+  WS_WATCHDOG_INTERVAL_MS,
+} from "../config";
 import { shouldSendPosition } from "../lib/cadence";
 import { estimateEtaSeconds } from "../lib/eta";
 import { cacheSnapshot } from "../storage/storage";
@@ -61,10 +67,80 @@ interface SessionState {
   fgWatcher: Location.LocationSubscription | null;
   usingBackgroundTask: boolean;
   lastSnapshotCacheAt: number;
+  /**
+   * Bumped on every `openSocket`. Handlers capture their generation and become
+   * no-ops once superseded, so a forced reconnect can close the old socket
+   * without its `onclose` racing a second one into existence.
+   */
+  socketGen: number;
+  /** Wall-clock of the last frame received from the server (liveness, not data). */
+  lastInboundAt: number;
+  watchdog: ReturnType<typeof setInterval> | null;
 }
 
 let session: SessionState | null = null;
 const listeners = new Set<Listener>();
+
+/**
+ * Why the live map says what it says.
+ *
+ * Diagnosing "it shows Offline on one phone but not another" used to mean
+ * guessing: `ws.onerror` is a deliberate no-op and a refused upgrade leaves no
+ * trace on the device at all. This is the smallest record that makes the
+ * question answerable from the Profile screen, and it deliberately holds *no*
+ * location data — counters, socket close codes and the server URL only, so it
+ * can never become a back door around the no-speed and share-only-during-a-run
+ * guarantees (spec hard constraints 1 and 4).
+ *
+ * It outlives `stopLiveSession()` on purpose: the failure you need to read is
+ * usually the one that already happened.
+ */
+export interface LiveDiagnostics {
+  /** Base URL this build was compiled against — `EXPO_PUBLIC_SERVER_URL`. */
+  serverUrl: string;
+  /** WS endpoint without the query string; the token never appears here. */
+  wsEndpoint: string;
+  runId: string | null;
+  connected: boolean;
+  /** ms since the last frame from the server, or null if none ever arrived. */
+  inboundAgeMs: number | null;
+  lastCloseCode: number | null;
+  lastCloseReason: string | null;
+  /** True if a socket has ever reached `onopen` in this app session. */
+  everConnected: boolean;
+  reconnectAttempt: number;
+  forcedReconnects: number;
+  /** Why the watchdog last replaced a socket it no longer trusted. */
+  lastForcedReason: string | null;
+  positionsSent: number;
+}
+
+const diag = {
+  lastCloseCode: null as number | null,
+  lastCloseReason: null as string | null,
+  everConnected: false,
+  forcedReconnects: 0,
+  lastForcedReason: null as string | null,
+  positionsSent: 0,
+};
+
+export function liveDiagnostics(): LiveDiagnostics {
+  const s = session;
+  return {
+    serverUrl: SERVER_URL,
+    wsEndpoint: WS_BASE,
+    runId: s?.runId ?? null,
+    connected: s?.connected ?? false,
+    inboundAgeMs: s?.lastInboundAt ? Date.now() - s.lastInboundAt : null,
+    lastCloseCode: diag.lastCloseCode,
+    lastCloseReason: diag.lastCloseReason,
+    everConnected: diag.everConnected,
+    reconnectAttempt: s?.reconnectAttempt ?? 0,
+    forcedReconnects: diag.forcedReconnects,
+    lastForcedReason: diag.lastForcedReason,
+    positionsSent: diag.positionsSent,
+  };
+}
 
 function emit(event: LiveSessionEvent) {
   for (const l of Array.from(listeners)) {
@@ -118,18 +194,25 @@ function wsUrl(token: string, runId: string): string {
 
 function openSocket(s: SessionState) {
   if (s.stopping) return;
+  const gen = ++s.socketGen;
+  const current = () => session === s && !s.stopping && gen === s.socketGen;
   const ws = new WebSocket(wsUrl(s.token, s.runId));
   s.socket = ws;
 
   ws.onopen = () => {
-    if (session !== s || s.stopping) return;
+    if (!current()) return;
     s.connected = true;
     s.reconnectAttempt = 0;
+    s.lastInboundAt = Date.now();
+    diag.everConnected = true;
     emit({ kind: "connection", connected: true });
   };
 
   ws.onmessage = (evt) => {
-    if (session !== s) return;
+    if (!current()) return;
+    // Any frame proves the socket is alive — record before parsing, so a
+    // malformed frame still counts as liveness and can't trip the watchdog.
+    s.lastInboundAt = Date.now();
     let message: ServerMessage;
     try {
       message = JSON.parse(String(evt.data)) as ServerMessage;
@@ -155,8 +238,15 @@ function openSocket(s: SessionState) {
     emit({ kind: "message", message, receivedAt });
   };
 
-  ws.onclose = () => {
-    if (session !== s) return;
+  ws.onclose = (evt) => {
+    // Guard first: a socket we deliberately orphaned in forceReconnect will
+    // close too, and letting its (meaningless) code overwrite the record would
+    // bury the one we need. A refused upgrade arrives here as a close on a
+    // socket that never opened, and is the only place the server's reason is
+    // ever visible on the device.
+    if (!current()) return;
+    diag.lastCloseCode = typeof evt?.code === "number" ? evt.code : null;
+    diag.lastCloseReason = evt?.reason ? String(evt.reason) : null;
     s.socket = null;
     if (s.connected) {
       s.connected = false;
@@ -166,8 +256,92 @@ function openSocket(s: SessionState) {
   };
 
   ws.onerror = () => {
-    // onclose follows; nothing to do (and nothing gets logged — no payloads).
+    // onclose follows with the code/reason; nothing is logged here, because an
+    // error event can carry frame payloads and positions never reach a log (R7).
   };
+}
+
+/** True when the server has gone quiet for longer than a snapshot cycle allows. */
+function inboundIsStale(s: SessionState): boolean {
+  return Date.now() - s.lastInboundAt > WS_INBOUND_TIMEOUT_MS;
+}
+
+/**
+ * Tear down a socket we no longer trust and immediately open a fresh one.
+ *
+ * Bumping `socketGen` first orphans the old handlers, so the `close()` below
+ * cannot drive `onclose` into scheduling a second, competing reconnect. The
+ * backoff is reset deliberately: this is a known-dead connection on a network
+ * that just came back, not a server we should be backing off from.
+ */
+function forceReconnect(s: SessionState, reason: string) {
+  if (s.stopping || session !== s) return;
+  diag.forcedReconnects += 1;
+  diag.lastForcedReason = reason;
+  const ws = s.socket;
+  s.socket = null;
+  s.socketGen += 1;
+  if (ws) {
+    try {
+      ws.close();
+    } catch {
+      // already gone
+    }
+  }
+  if (s.reconnectTimer) {
+    clearTimeout(s.reconnectTimer);
+    s.reconnectTimer = null;
+  }
+  if (s.connected) {
+    s.connected = false;
+    emit({ kind: "connection", connected: false });
+  }
+  s.reconnectAttempt = 0;
+  openSocket(s);
+}
+
+function startWatchdog(s: SessionState) {
+  stopWatchdog(s);
+  s.watchdog = setInterval(() => {
+    if (session !== s || s.stopping) return;
+    if (s.connected && inboundIsStale(s)) {
+      forceReconnect(s, "no server traffic");
+    }
+  }, WS_WATCHDOG_INTERVAL_MS);
+}
+
+function stopWatchdog(s: SessionState) {
+  if (s.watchdog) {
+    clearInterval(s.watchdog);
+    s.watchdog = null;
+  }
+}
+
+/**
+ * One listener for the whole module, armed while a session is live.
+ *
+ * Coming back to the foreground is the moment iOS hands the JS runtime back
+ * after a suspend, and the moment a socket the OS quietly killed has to be
+ * replaced. Timers do not fire while suspended, so the watchdog alone would
+ * not notice until a full interval after resume — this closes that gap.
+ */
+let appStateSub: { remove: () => void } | null = null;
+
+function startAppStateWatch() {
+  if (appStateSub) return;
+  appStateSub = AppState.addEventListener("change", (state) => {
+    if (state !== "active") return;
+    const s = session;
+    if (!s || s.stopping) return;
+    if (!s.connected || inboundIsStale(s)) {
+      forceReconnect(s, "resumed from background");
+    }
+  });
+}
+
+function stopAppStateWatch() {
+  appStateSub?.remove();
+  appStateSub = null;
 }
 
 function scheduleReconnect(s: SessionState) {
@@ -235,7 +409,10 @@ function handleFixes(fixes: Location.LocationObject[]) {
       lng: position.lng,
       ts: position.ts,
     });
-    if (sent) s.lastSent = position;
+    if (sent) {
+      s.lastSent = position;
+      diag.positionsSent += 1;
+    }
   }
 
   // Client-computed ETA to the meetup, pre-arrival only (contract `eta`).
@@ -383,9 +560,15 @@ export async function startLiveSession(
     fgWatcher: null,
     usingBackgroundTask: false,
     lastSnapshotCacheAt: 0,
+    socketGen: 0,
+    // 0 until a frame actually arrives, so "never" stays an honest answer.
+    lastInboundAt: 0,
+    watchdog: null,
   };
   session = s;
   openSocket(s);
+  startWatchdog(s);
+  startAppStateWatch();
 
   try {
     const fg = await Location.requestForegroundPermissionsAsync();
@@ -472,12 +655,15 @@ export async function startLiveSession(
 export async function stopLiveSession(): Promise<void> {
   const s = session;
   if (!s) {
-    // Belt and braces: make sure no orphaned task keeps running.
+    // Belt and braces: make sure no orphaned task or listener keeps running.
+    stopAppStateWatch();
     await stopLocationUpdates();
     return;
   }
   session = null;
   s.stopping = true;
+  stopWatchdog(s);
+  stopAppStateWatch();
   if (s.reconnectTimer) {
     clearTimeout(s.reconnectTimer);
     s.reconnectTimer = null;

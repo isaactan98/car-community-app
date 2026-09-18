@@ -47,6 +47,22 @@ export const STALENESS_THRESHOLD_MS = 60_000;
 export const ETA_SEND_INTERVAL_MS = 15_000;
 
 /**
+ * Half-open socket detection.
+ *
+ * The server broadcasts a `snapshot` every ~5 s (docs/CONTRACT.md), so inbound
+ * silence is a reliable liveness signal — no protocol-level ping needed, and
+ * the contract stays untouched (the client may only send `position` and `eta`).
+ *
+ * This exists because of iOS: when the OS suspends the app it tears the TCP
+ * connection down underneath us, but JS still reports `readyState === OPEN`,
+ * so `send()` succeeds into the void and the UI keeps claiming "connected".
+ * Android never shows this — the location foreground service keeps the process
+ * and its socket alive — which is exactly why the bug read as iOS-only.
+ */
+export const WS_INBOUND_TIMEOUT_MS = 20_000;
+export const WS_WATCHDOG_INTERVAL_MS = 5_000;
+
+/**
  * Per-OEM battery / "Allow all the time" setup guide (docs/android-battery-setup.md),
  * surfaced in-app when a phone is likely to kill background location. Points at
  * the repo copy on `main` so it stays reachable without bundling a markdown

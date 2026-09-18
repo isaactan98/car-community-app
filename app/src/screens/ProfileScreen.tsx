@@ -22,7 +22,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { addCar, deleteCar, getMe } from "../api/client";
 import type { Car } from "../api/types";
-import { activeSessionRunId, subscribeLiveSession } from "../live/liveSession";
+import {
+  activeSessionRunId,
+  liveDiagnostics,
+  subscribeLiveSession,
+  type LiveDiagnostics,
+} from "../live/liveSession";
 import type { ScreenProps } from "../navigation/types";
 import { useSession } from "../session/SessionContext";
 import {
@@ -50,6 +55,44 @@ import {
   usePalette,
 } from "../ui/theme";
 
+/** "4s" / "2m" / "never" — the age of the last frame from the server. */
+function formatAgeMs(ms: number | null): string {
+  if (ms === null) return "never";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ago`;
+}
+
+/**
+ * The connection panel's data, re-read on a timer.
+ *
+ * Polling rather than subscribing is deliberate: half the value is the *age*
+ * of the last inbound frame, which changes with the clock and not with any
+ * event the session emits.
+ */
+function useDiagnostics(intervalMs = 1000): LiveDiagnostics {
+  const [d, setD] = useState<LiveDiagnostics>(() => liveDiagnostics());
+  useEffect(() => {
+    const t = setInterval(() => setD(liveDiagnostics()), intervalMs);
+    return () => clearInterval(t);
+  }, [intervalMs]);
+  return d;
+}
+
+/** One label/value line in the connection panel. */
+function DiagRow({ label, value }: { label: string; value: string }) {
+  const s = useStyles();
+  return (
+    <View style={s.diagRow}>
+      <Text style={s.diagLabel}>{label}</Text>
+      <Text style={s.diagValue} numberOfLines={2} selectable>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 /** True while a live session is sharing — the honest answer for the panel. */
 function useIsSharing(): boolean {
   const [sharing, setSharing] = useState(() => activeSessionRunId() !== null);
@@ -67,6 +110,7 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
   const { member, logout } = useSession();
   const { mode, setMode } = useAppearance();
   const sharing = useIsSharing();
+  const diag = useDiagnostics();
   const addRef = useRef<TextInput>(null);
   const [cars, setCars] = useState<Car[] | null>(null);
   const [name, setName] = useState("");
@@ -261,6 +305,52 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
         </Card>
       </View>
 
+      <View style={s.block}>
+        <Eyebrow title="Connection" />
+        <Card style={s.diag}>
+          <DiagRow label="Server" value={diag.serverUrl} />
+          <DiagRow label="Live socket" value={diag.wsEndpoint} />
+          <DiagRow
+            label="Status"
+            value={
+              diag.runId === null
+                ? "idle — no run is live"
+                : diag.connected
+                  ? `connected · last update ${formatAgeMs(diag.inboundAgeMs)}`
+                  : `not connected · retry #${diag.reconnectAttempt}`
+            }
+          />
+          <DiagRow
+            label="Last close"
+            value={
+              diag.lastCloseCode === null && diag.lastCloseReason === null
+                ? diag.everConnected
+                  ? "none"
+                  : "never connected"
+                : `${diag.lastCloseCode ?? "—"}${
+                    diag.lastCloseReason ? ` · ${diag.lastCloseReason}` : ""
+                  }`
+            }
+          />
+          <DiagRow
+            label="Recovery"
+            value={
+              diag.forcedReconnects === 0
+                ? "none needed"
+                : `${diag.forcedReconnects} forced reconnects${
+                    diag.lastForcedReason ? ` · last: ${diag.lastForcedReason}` : ""
+                  }`
+            }
+          />
+          <DiagRow label="Sent" value={`${diag.positionsSent} positions`} />
+        </Card>
+        <Text style={s.hint}>
+          For debugging only. &quot;Server&quot; is the address this build was
+          compiled against — if it isn&apos;t the one you expect, the app was built
+          without EXPO_PUBLIC_SERVER_URL set. No location data appears here.
+        </Text>
+      </View>
+
       <Button
         title="Leave the group on this phone"
         role="destructive"
@@ -327,4 +417,9 @@ const useStyles = makeStyles((c) => ({
   privacyDot: { width: 8, height: 8, borderRadius: 4 },
   privacyTitle: { ...type.calloutSemi, color: c.label, flex: 1 },
   privacyBody: { ...type.footnote, color: c.secondaryLabel },
+
+  diag: { padding: spacing.l, gap: spacing.s },
+  diagRow: { gap: 2 },
+  diagLabel: { ...type.monoSmall, color: c.tertiaryLabel },
+  diagValue: { ...type.footnote, color: c.label },
 }));
