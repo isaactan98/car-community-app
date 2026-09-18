@@ -10,6 +10,7 @@ import {
   DEG_PER_METER_LAT,
   INVITE,
 } from './helpers.js';
+import { addLogSink } from '../src/logger.js';
 
 let t: TestServer;
 
@@ -180,6 +181,40 @@ describe('websocket realtime', () => {
 
     const notJoined = new WsClient(t, outsider.token, run.id);
     await expect(notJoined.open()).rejects.toThrow(/403/);
+  });
+
+  it('logs every rejected WS upgrade, without ever logging the token', async () => {
+    // A refused upgrade is invisible on the device: the app's `ws.onerror` is a
+    // no-op by design. The server log is the only record there is, so it is a
+    // tested guarantee rather than a convenience.
+    const lines: string[] = [];
+    const removeSink = addLogSink((line) => lines.push(line));
+    try {
+      const { run } = await createRunFixture(t);
+      const outsider = await joinMember(t, 'Outsider');
+
+      await expect(new WsClient(t, 'bogus-token', run.id).open()).rejects.toThrow(/401/);
+      await expect(new WsClient(t, outsider.token, run.id).open()).rejects.toThrow(/403/);
+
+      const rejections = lines
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((entry) => entry.msg === 'ws upgrade rejected');
+
+      expect(rejections).toHaveLength(2);
+      expect(rejections[0]).toMatchObject({ status: 401, reason: 'invalid token', hasToken: true });
+      expect(rejections[1]).toMatchObject({
+        status: 403,
+        reason: 'not a participant of this run',
+        memberId: outsider.id,
+      });
+      // Tokens are bearer credentials — they must never reach a log line.
+      for (const line of lines) {
+        expect(line).not.toContain('bogus-token');
+        expect(line).not.toContain(outsider.token);
+      }
+    } finally {
+      removeSink();
+    }
   });
 
   it('sends a snapshot on connect and broadcasts position updates in ~5s snapshots', async () => {
