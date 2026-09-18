@@ -1,12 +1,16 @@
 /**
- * Run detail / arrival board (R2 + R3):
- * - attendee list with status, "12/18 arrived", arrived list, incoming list
- *   with live ETA from WS snapshots
+ * Run detail / roll call (R2 + R3):
+ * - attendee board with status, "4/7 arrived", and live ETA from WS snapshots
  * - RSVP join/leave; the car picker is a native sheet (CarPickerScreen)
  * - share button exposing the run's invite deep link
  * - creator start/end controls, Waze handoff for meetup/destination (R5)
  * - degraded mode: cached run + snapshot with offline banner (R6)
  * - auto start/stop of location sharing per R7
+ *
+ * Presentation notes: the car reads as a plate rather than a grey subtitle,
+ * ETA gets the size the number deserves (it's what people open this screen
+ * for), and arrived rows carry three redundant signals — filled avatar, tick,
+ * green edge — so the state survives glare and colour blindness.
  */
 import { useFocusEffect } from "@react-navigation/native";
 import {
@@ -21,13 +25,13 @@ import {
 import {
   Alert,
   Linking,
-  Platform,
   Pressable,
   SectionList,
   Share,
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, endRun, getRun, leaveRun, startRun } from "../api/client";
 import type { AttendeeStatus, Place, Run, RunState } from "../api/types";
@@ -48,32 +52,35 @@ import {
 } from "../lib/snapshotCache";
 import type { ScreenProps } from "../navigation/types";
 import { useSession } from "../session/SessionContext";
-import {
-  cacheRun,
-  loadCachedRun,
-  loadCachedSnapshot,
-} from "../storage/storage";
+import { cacheRun, loadCachedRun, loadCachedSnapshot } from "../storage/storage";
 import {
   ArrivalDots,
   Avatar,
   Button,
+  Card,
   EmptyState,
-  Group,
+  Eyebrow,
   InlineBanner,
-  ListRow,
   LiveBadge,
   Loading,
   OfflineBanner,
-  SectionHeader,
+  Plate,
   WazeButton,
   confirmAction,
-  rowPosition,
-  type RowPosition,
 } from "../ui/components";
 import { haptic } from "../ui/haptics";
 import { Icon } from "../ui/Icon";
 import { PLACE_LABEL, type PlaceKind } from "../ui/mapMarkers";
-import { ROW_INSET, TOUCH_MIN, makeStyles, spacing, type, usePalette } from "../ui/theme";
+import {
+  DOCK_HEIGHT,
+  ROW_INSET,
+  TOUCH_MIN,
+  makeStyles,
+  radius,
+  spacing,
+  type,
+  usePalette,
+} from "../ui/theme";
 import { useNow } from "../ui/useNow";
 
 interface BoardRow {
@@ -87,7 +94,7 @@ interface BoardRow {
 function openBatteryGuide() {
   void Linking.openURL(BATTERY_GUIDE_URL).catch(() => {
     Alert.alert(
-      "Couldn't Open the Guide",
+      "Couldn't open the guide",
       "Find the battery setup steps in the app's README / repo.",
     );
   });
@@ -101,12 +108,12 @@ const permissionHooks: StartHooks = {
   explainBackground: () =>
     new Promise<boolean>((resolve) => {
       Alert.alert(
-        "Keep Sharing When Your Screen Is Off",
+        "Keep sharing when your screen is off",
         'Runs needs "Allow all the time" location so your kaki can still see you ' +
           "on the map when your screen is locked or Waze is in front. We only " +
           "share while a run you've joined is active — never otherwise.",
         [
-          { text: "Not Now", style: "cancel", onPress: () => resolve(false) },
+          { text: "Not now", style: "cancel", onPress: () => resolve(false) },
           { text: "Continue", onPress: () => resolve(true) },
         ],
         { cancelable: false },
@@ -115,27 +122,27 @@ const permissionHooks: StartHooks = {
   offerSettings: () =>
     new Promise<boolean>((resolve) => {
       Alert.alert(
-        'Set Location to "Allow All the Time"',
+        'Set location to "Allow all the time"',
         "Android needs you to switch this app's location to \"Allow all the " +
           'time" in Settings so your position keeps updating with the screen ' +
           "off. Some phones also need Runs exempted from battery optimisation.",
         [
           {
-            text: "Battery Guide",
+            text: "Battery guide",
             onPress: () => {
               openBatteryGuide();
               resolve(false);
             },
           },
-          { text: "Not Now", style: "cancel", onPress: () => resolve(false) },
-          { text: "Open Settings", onPress: () => resolve(true) },
+          { text: "Not now", style: "cancel", onPress: () => resolve(false) },
+          { text: "Open settings", onPress: () => resolve(true) },
         ],
         { cancelable: false },
       );
     }),
 };
 
-/** Board sections: who's still coming (soonest first), then who's there. */
+/** Who's in, then who's still coming (soonest first). */
 function boardSections(
   rows: BoardRow[],
   state: RunState,
@@ -147,14 +154,14 @@ function boardSections(
       ? [{ key: "going", title: "Going", data: [...incoming, ...arrived] }]
       : [
           {
-            key: "incoming",
-            title: state === "ended" ? "Didn't Check In" : "On the Way",
-            data: incoming,
+            key: "arrived",
+            title: state === "ended" ? "Checked in" : "At the meetup",
+            data: arrived,
           },
           {
-            key: "arrived",
-            title: state === "ended" ? "Checked In" : "Arrived",
-            data: arrived,
+            key: "incoming",
+            title: state === "ended" ? "Didn't check in" : "On the way",
+            data: incoming,
           },
         ];
   // No empty sections, so SectionList falls back to ListEmptyComponent.
@@ -167,6 +174,7 @@ export default function RunDetailScreen({
 }: ScreenProps<"RunDetail">) {
   const s = useStyles();
   const c = usePalette();
+  const insets = useSafeAreaInsets();
   const { runId } = route.params;
   const { member, token } = useSession();
   const now = useNow(10_000);
@@ -248,7 +256,7 @@ export default function RunDetailScreen({
         setSharing(res.started);
         if (!res.started && res.error === "Location permission denied") {
           Alert.alert(
-            "Location Access Needed",
+            "Location access needed",
             "Others can't see you on the run without location access. You can still view the board.",
           );
         }
@@ -280,32 +288,19 @@ export default function RunDetailScreen({
       if (run) void shareRun(run);
     };
     navigation.setOptions({
-      // iOS: native bar button with the standard share symbol.
-      unstable_headerRightItems: () =>
-        canShare
-          ? [
-              {
-                type: "button",
-                label: "Share",
-                icon: { type: "sfSymbol", name: "square.and.arrow.up" },
-                onPress: share,
-                accessibilityLabel: "Share invite link",
-              },
-            ]
-          : [],
-      headerRight:
-        Platform.OS !== "ios" && canShare
-          ? () => (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Share invite link"
-                onPress={share}
-                style={s.headerIcon}
-              >
-                <Icon name="share" size={22} color={c.label} />
-              </Pressable>
-            )
-          : undefined,
+      headerRight: canShare
+        ? () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Share invite link"
+              onPress={share}
+              hitSlop={6}
+              style={({ pressed }) => [s.headerIcon, pressed && { opacity: 0.6 }]}
+            >
+              <Icon name="share" size={19} color={c.label} />
+            </Pressable>
+          )
+        : undefined,
     });
   }, [navigation, run, canShare, shareRun, s, c]);
 
@@ -340,12 +335,12 @@ export default function RunDetailScreen({
 
   const doLeave = async () => {
     const ok = await confirmAction({
-      title: "Leave This Run?",
+      title: "Leave this run?",
       message:
         run?.state === "active"
-          ? "You'll stop sharing your location and drop off the arrival board."
+          ? "You'll stop sharing your location and drop off the board."
           : "You'll be taken off the list of people going.",
-      confirmLabel: "Leave Run",
+      confirmLabel: "Leave run",
       destructive: true,
     });
     if (!ok) return;
@@ -359,7 +354,7 @@ export default function RunDetailScreen({
     } catch (err) {
       haptic.error();
       Alert.alert(
-        "Couldn't Leave the Run",
+        "Couldn't leave the run",
         err instanceof ApiError && err.network
           ? "The server is unreachable — you've stopped sharing your location either way."
           : "Try again.",
@@ -371,10 +366,10 @@ export default function RunDetailScreen({
 
   const doStart = async () => {
     const ok = await confirmAction({
-      title: "Start the Run Now?",
+      title: "Start the run now?",
       message:
         "Everyone who joined will start sharing their live location with the group.",
-      confirmLabel: "Start Run",
+      confirmLabel: "Start run",
     });
     if (!ok) return;
     setBusy(true);
@@ -384,7 +379,7 @@ export default function RunDetailScreen({
       await load();
     } catch {
       haptic.error();
-      Alert.alert("Couldn't Start the Run", "Check your connection and try again.");
+      Alert.alert("Couldn't start the run", "Check your connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -392,9 +387,9 @@ export default function RunDetailScreen({
 
   const doEnd = async () => {
     const ok = await confirmAction({
-      title: "End the Run for Everyone?",
+      title: "End the run for everyone?",
       message: "Location sharing stops for all members and the run moves to past runs.",
-      confirmLabel: "End Run",
+      confirmLabel: "End run",
       destructive: true,
     });
     if (!ok) return;
@@ -405,7 +400,7 @@ export default function RunDetailScreen({
       await load();
     } catch {
       haptic.error();
-      Alert.alert("Couldn't End the Run", "Check your connection and try again.");
+      Alert.alert("Couldn't end the run", "Check your connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -416,10 +411,10 @@ export default function RunDetailScreen({
       <View style={s.fill}>
         <EmptyState
           icon="offline"
-          title="Can't Load This Run"
+          title="Can't load this run"
           body="The server is unreachable and there's no saved copy of this run on your phone yet."
         >
-          <Button title="Try Again" size="regular" role="tinted" onPress={() => void load()} />
+          <Button title="Try again" size="regular" role="tinted" onPress={() => void load()} />
         </EmptyState>
       </View>
     ) : (
@@ -436,14 +431,14 @@ export default function RunDetailScreen({
       <InlineBanner
         icon="clock"
         tone="neutral"
-        title="This Run Has Ended"
+        title="This run has ended"
         body="Location sharing has stopped for everyone."
       />
     );
   } else if (!joined) {
     primary = (
       <View style={s.primary}>
-        <Button title="Join Run" onPress={openCarPicker} loading={busy} />
+        <Button title="Join run" onPress={openCarPicker} loading={busy} />
         <Text style={s.helper}>
           {active
             ? "You'll share your location with the group until the run ends or you leave."
@@ -455,7 +450,7 @@ export default function RunDetailScreen({
     primary = (
       <View style={s.primary}>
         <Button
-          title="Open Live Map"
+          title="Open live map"
           icon="map"
           onPress={() => navigation.navigate("LiveMap", { runId })}
         />
@@ -463,14 +458,14 @@ export default function RunDetailScreen({
           <InlineBanner
             icon="sharing"
             tone="success"
-            title="Sharing Your Location"
+            title="Sharing your location"
             body="Stops automatically when the run ends or you leave."
           />
         ) : sharing === true && foregroundOnly ? (
           <InlineBanner
             icon="warning"
             tone="warning"
-            title="Sharing Pauses When Locked"
+            title="Sharing pauses when locked"
             body={'Allow location "Always" so the group can still see you.'}
             actionLabel="Fix"
             onAction={openBatteryGuide}
@@ -479,7 +474,7 @@ export default function RunDetailScreen({
           <InlineBanner
             icon="warning"
             tone="warning"
-            title="Not Sharing Your Location"
+            title="Not sharing your location"
             body="Location access is off, so the group can't see you on the map."
             actionLabel="Settings"
             onAction={() => void Linking.openSettings()}
@@ -492,7 +487,7 @@ export default function RunDetailScreen({
       <InlineBanner
         icon="arrived"
         tone="success"
-        title="You're Going"
+        title="You're going"
         body="Location sharing starts automatically when the run goes live."
       />
     );
@@ -510,26 +505,65 @@ export default function RunDetailScreen({
           />
         </View>
       ) : null}
+
       <View style={s.hero}>
-        {active ? (
-          <LiveBadge />
-        ) : (
-          <Text style={s.eyebrow}>{run.state === "upcoming" ? "Upcoming" : "Ended"}</Text>
-        )}
-        <Text style={s.title} accessibilityRole="header" maxFontSizeMultiplier={2}>
+        <View style={s.heroTop}>
+          {active ? (
+            <LiveBadge />
+          ) : (
+            <Text style={s.eyebrow}>
+              {run.state === "upcoming" ? "Upcoming" : "Ended"}
+            </Text>
+          )}
+          <Text style={s.heroWhen} numberOfLines={1}>
+            {formatWhen(run.startsAt, now).toUpperCase()}
+            {isCreator ? " · YOUR RUN" : ""}
+          </Text>
+        </View>
+        <Text style={s.title} accessibilityRole="header" maxFontSizeMultiplier={1.8}>
           {run.name}
         </Text>
-        <Text style={s.when}>
-          {formatWhen(run.startsAt, now)}
-          {isCreator ? " · Organised by you" : ""}
-        </Text>
       </View>
+
+      <Card style={s.route}>
+        <PlaceLeg kind="meetup" place={run.meetup} />
+        {run.destination ? (
+          <>
+            <View style={s.legConnector}>
+              <View style={s.legLine} />
+            </View>
+            <PlaceLeg kind="destination" place={run.destination} />
+          </>
+        ) : null}
+      </Card>
+
+      {run.state !== "upcoming" && counts.total > 0 ? (
+        <View
+          style={s.tally}
+          accessible
+          accessibilityRole="summary"
+          accessibilityLabel={`${counts.arrived} of ${counts.total} ${
+            run.state === "ended" ? "checked in" : "arrived"
+          }`}
+        >
+          <Text style={s.tallyNumber} allowFontScaling={false}>
+            {counts.arrived}
+            <Text style={s.tallyOf}>/{counts.total}</Text>
+          </Text>
+          <View style={s.tallyRight}>
+            <Text style={s.tallyLabel}>
+              {run.state === "ended" ? "Checked in" : "Arrived"}
+            </Text>
+            <ArrivalDots arrived={counts.arrived} total={counts.total} />
+          </View>
+        </View>
+      ) : null}
 
       <View style={s.actions}>
         {primary}
         {isCreator && run.state === "upcoming" ? (
           <Button
-            title="Start Run"
+            title="Start run"
             icon="start"
             role={joined ? "filled" : "tinted"}
             onPress={doStart}
@@ -538,242 +572,301 @@ export default function RunDetailScreen({
         ) : null}
       </View>
 
-      <Group header="Route">
-        <PlaceRow kind="meetup" place={run.meetup} />
-        {run.destination ? <PlaceRow kind="destination" place={run.destination} /> : null}
-      </Group>
-
       {joined && run.state !== "ended" ? (
-        <Group header="Your RSVP">
-          <ListRow
-            leading={<Icon name="car" size={24} color={c.tint} />}
-            title="Car"
-            value={myAttendee?.carName ?? "None"}
-            chevron
-            onPress={openCarPicker}
-            accessibilityLabel={`Car, ${myAttendee?.carName ?? "none"}`}
-            accessibilityHint="Change the car you're bringing"
-          />
-        </Group>
-      ) : null}
-
-      {run.state !== "upcoming" && counts.total > 0 ? (
-        <Group header="Arrival Board">
-          <ListRow
-            accessibilityLabel={`${counts.arrived} of ${counts.total} ${
-              run.state === "ended" ? "checked in" : "arrived"
-            }`}
-            accessibilityRole="summary"
-          >
-            <View style={s.summary}>
-              <Text style={s.summaryText}>
-                {counts.arrived} of {counts.total}{" "}
-                {run.state === "ended" ? "checked in" : "arrived"}
-              </Text>
-              <ArrivalDots arrived={counts.arrived} total={counts.total} />
-            </View>
-          </ListRow>
-        </Group>
+        <Pressable
+          onPress={openCarPicker}
+          accessibilityRole="button"
+          accessibilityLabel={`Your car, ${myAttendee?.carName ?? "none"}`}
+          accessibilityHint="Change the car you're bringing"
+          style={({ pressed }) => [s.carRow, pressed && { backgroundColor: c.highlight }]}
+        >
+          <Icon name="car" size={20} color={c.tint} />
+          <Text style={s.carLabel}>You&apos;re bringing</Text>
+          <Plate name={myAttendee?.carName ?? null} self />
+          <Icon name="chevron" size={13} weight="semibold" color={c.tertiaryLabel} />
+        </Pressable>
       ) : null}
     </View>
   );
 
-  const destructiveRows = [
-    joined && run.state !== "ended" ? (
-      <ListRow key="leave" title="Leave Run" destructive onPress={doLeave} disabled={busy} />
-    ) : null,
-    isCreator && active ? (
-      <ListRow
-        key="end"
-        title="End Run for Everyone"
-        destructive
-        onPress={doEnd}
-        disabled={busy}
-      />
-    ) : null,
-  ].filter(Boolean);
+  const canLeave = joined && run.state !== "ended";
+  const canEnd = isCreator && active;
 
   return (
     <SectionList
       style={s.list}
-      contentInsetAdjustmentBehavior="automatic"
       sections={sections}
       keyExtractor={(r) => r.memberId}
-      contentContainerStyle={s.content}
+      contentContainerStyle={[
+        s.content,
+        { paddingBottom: insets.bottom + DOCK_HEIGHT + spacing.xxl },
+      ]}
       stickySectionHeadersEnabled={false}
       ListHeaderComponent={header}
       renderSectionHeader={({ section }) => (
-        <SectionHeader title={section.title} count={section.data.length} />
+        <Eyebrow
+          title={section.title}
+          count={section.data.length}
+          style={s.sectionHeader}
+        />
       )}
       renderSectionFooter={() => <View style={s.sectionGap} />}
       renderItem={({ item, index, section }) => (
-        <AttendeeRow
+        <RollCallRow
           row={item}
           isSelf={item.memberId === selfId}
           runState={run.state}
-          position={rowPosition(index, section.data.length)}
+          first={index === 0}
+          last={index === section.data.length - 1}
         />
       )}
       ListEmptyComponent={
         <EmptyState
           icon="group"
-          title="Nobody's Joined Yet"
+          title="Nobody's joined yet"
           body="Share the invite link so the group can RSVP."
         />
       }
       ListFooterComponent={
-        destructiveRows.length > 0 ? <Group>{destructiveRows}</Group> : null
+        canLeave || canEnd ? (
+          <View style={s.footer}>
+            {canLeave ? (
+              <Button
+                title="Leave run"
+                role="destructive"
+                size="regular"
+                onPress={doLeave}
+                disabled={busy}
+              />
+            ) : null}
+            {canEnd ? (
+              <Button
+                title="End run for everyone"
+                role="destructive"
+                size="regular"
+                onPress={doEnd}
+                disabled={busy}
+              />
+            ) : null}
+          </View>
+        ) : null
       }
     />
   );
 }
 
-function PlaceRow({
-  kind,
-  place,
-  position,
-}: {
-  kind: PlaceKind;
-  place: Place;
-  position?: RowPosition;
-}) {
-  const c = usePalette();
+function PlaceLeg({ kind, place }: { kind: PlaceKind; place: Place }) {
+  const s = useStyles();
+  const meetup = kind === "meetup";
   return (
-    <ListRow
-      position={position}
-      leading={
-        <Icon
-          name={kind === "meetup" ? "meetup" : "destination"}
-          size={26}
-          color={kind === "meetup" ? c.tint : c.label}
-        />
-      }
-      title={place.label}
-      subtitle={PLACE_LABEL[kind]}
-      trailing={
-        <WazeButton
-          lat={place.lat}
-          lng={place.lng}
-          place={`the ${PLACE_LABEL[kind].toLowerCase()}`}
-        />
-      }
-    />
+    <View style={s.leg}>
+      <View style={s.legMarker}>
+        <View style={meetup ? s.legDotMeetup : s.legDotDestination} />
+      </View>
+      <View style={s.legText}>
+        <Text style={s.legKind}>{PLACE_LABEL[kind].toUpperCase()}</Text>
+        <Text style={s.legLabel} numberOfLines={2}>
+          {place.label}
+        </Text>
+      </View>
+      <WazeButton
+        lat={place.lat}
+        lng={place.lng}
+        place={`the ${PLACE_LABEL[kind].toLowerCase()}`}
+      />
+    </View>
   );
 }
 
-function AttendeeRow({
+function RollCallRow({
   row,
   isSelf,
   runState,
-  position,
+  first,
+  last,
 }: {
   row: BoardRow;
   isSelf: boolean;
   runState: RunState;
-  position: RowPosition;
+  first: boolean;
+  last: boolean;
 }) {
   const s = useStyles();
   const c = usePalette();
   const arrived = row.status === "arrived";
 
-  // Colour lives on the symbol; the words stay in label colours so the
-  // state reads without colour and passes contrast in both appearances.
+  // Three redundant signals carry "arrived": the filled avatar, the tick, and
+  // the green edge. Never colour alone.
   let status: ReactNode = null;
   let spoken = "";
-  if (runState === "active") {
-    if (arrived) {
-      status = (
-        <View style={s.status}>
-          <Icon name="arrived" size={17} color={c.green} />
-          <Text style={s.statusText}>Arrived</Text>
-        </View>
-      );
-      spoken = "arrived";
-    } else if (row.etaSeconds !== null) {
-      const eta = row.etaSeconds < 45 ? "Arriving" : formatEta(row.etaSeconds);
-      status = (
-        <View style={s.status}>
-          <Icon name="car" size={15} color={c.blue} />
-          <Text style={s.eta}>{eta}</Text>
-        </View>
-      );
-      spoken = `on the way, ${eta} away`;
-    } else {
-      status = <Text style={s.statusText}>On the way</Text>;
-      spoken = "on the way";
-    }
-  } else if (runState === "ended" && arrived) {
+  if (arrived && runState !== "upcoming") {
+    const label = runState === "ended" ? "Checked in" : "Arrived";
     status = (
-      <View style={s.status}>
-        <Icon name="arrived" size={17} color={c.secondaryLabel} />
-        <Text style={s.statusText}>Checked in</Text>
+      <View style={s.statusRow}>
+        <Icon name="arrived" size={15} color={runState === "ended" ? c.secondaryLabel : c.green} />
+        <Text style={s.statusText}>{label}</Text>
       </View>
     );
+    spoken = label.toLowerCase();
+  } else if (runState === "active") {
+    if (row.etaSeconds !== null) {
+      const eta = formatEta(row.etaSeconds);
+      status = <Text style={s.eta}>{eta}</Text>;
+      spoken = `on the way, ${eta} away`;
+    } else {
+      status = (
+        <View style={s.statusRow}>
+          <Text style={s.statusMuted}>No signal yet</Text>
+        </View>
+      );
+      spoken = "on the way, no signal yet";
+    }
   }
 
   return (
-    <ListRow
-      position={position}
-      leading={<Avatar name={row.displayName} />}
-      trailing={status}
-      accessibilityLabel={[row.displayName, isSelf ? "you" : null, row.carName, spoken || null]
+    <View
+      style={[
+        s.person,
+        first && s.personFirst,
+        last && s.personLast,
+        arrived && runState === "active" && s.personArrived,
+      ]}
+      accessible
+      accessibilityLabel={[
+        row.displayName,
+        isSelf ? "you" : null,
+        row.carName ?? "riding along",
+        spoken || null,
+      ]
         .filter(Boolean)
         .join(", ")}
     >
+      <Avatar
+        name={row.displayName}
+        state={isSelf ? "self" : arrived && runState === "active" ? "arrived" : "default"}
+      />
       <View style={s.personText}>
         <Text style={s.personName} numberOfLines={1}>
           {row.displayName}
           {isSelf ? <Text style={s.you}> (You)</Text> : null}
         </Text>
-        <Text style={s.personCar} numberOfLines={1}>
-          {row.carName ?? "No car listed"}
-        </Text>
+        <Plate name={row.carName} self={isSelf} />
       </View>
-    </ListRow>
+      <View style={s.personStatus}>{status}</View>
+    </View>
   );
 }
 
 const useStyles = makeStyles((c) => ({
   fill: { flex: 1, backgroundColor: c.background, justifyContent: "center" },
   list: { flex: 1, backgroundColor: c.background },
-  content: { paddingHorizontal: ROW_INSET, paddingTop: spacing.s, paddingBottom: spacing.xxl },
+  content: { paddingHorizontal: ROW_INSET, paddingTop: spacing.xs },
   headerIcon: {
-    minWidth: TOUCH_MIN,
-    minHeight: TOUCH_MIN,
+    minWidth: TOUCH_MIN - 8,
+    minHeight: TOUCH_MIN - 8,
     alignItems: "center",
     justifyContent: "center",
   },
-  banner: { marginBottom: spacing.m },
-  hero: {
-    gap: spacing.xs,
-    marginTop: spacing.s,
-    marginBottom: spacing.xl,
+  banner: { marginBottom: spacing.l },
+
+  hero: { gap: spacing.s, marginBottom: spacing.l, paddingHorizontal: spacing.xs },
+  heroTop: { flexDirection: "row", alignItems: "center", gap: spacing.s },
+  eyebrow: { ...type.eyebrow, textTransform: "uppercase", color: c.secondaryLabel },
+  heroWhen: { ...type.monoSmall, color: c.tertiaryLabel, flexShrink: 1 },
+  title: { ...type.display1, color: c.label },
+
+  route: { padding: spacing.l, gap: 0, marginBottom: spacing.l },
+  leg: { flexDirection: "row", alignItems: "center", gap: spacing.m },
+  legMarker: { width: 14, alignItems: "center" },
+  legDotMeetup: { width: 11, height: 11, borderRadius: 6, backgroundColor: c.tint },
+  legDotDestination: { width: 11, height: 11, borderRadius: 2, backgroundColor: c.label },
+  legConnector: { width: 14, alignItems: "center", paddingVertical: 2 },
+  legLine: {
+    width: 0,
+    height: 20,
+    borderLeftWidth: 2,
+    borderStyle: "dotted",
+    borderColor: c.separator,
+  },
+  legText: { flex: 1, gap: 1 },
+  legKind: { ...type.eyebrow, fontSize: 10, letterSpacing: 1.6, color: c.tertiaryLabel },
+  legLabel: { ...type.bodySemi, color: c.label },
+
+  tally: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.l,
+    marginBottom: spacing.l,
     paddingHorizontal: spacing.xs,
   },
-  eyebrow: {
-    ...type.footnote,
-    fontWeight: "600",
-    color: c.secondaryLabel,
+  tallyNumber: { ...type.monoHuge, color: c.label },
+  tallyOf: { color: c.tertiaryLabel },
+  tallyRight: { flex: 1, gap: 6 },
+  tallyLabel: {
+    ...type.eyebrow,
     textTransform: "uppercase",
+    color: c.secondaryLabel,
   },
-  title: { ...type.title1, color: c.label },
-  when: { ...type.body, color: c.secondaryLabel },
-  actions: { gap: spacing.m, marginBottom: spacing.xxl - spacing.s },
+
+  actions: { gap: spacing.m, marginBottom: spacing.l },
   primary: { gap: spacing.m },
   helper: {
     ...type.footnote,
-    color: c.secondaryLabel,
+    color: c.tertiaryLabel,
     textAlign: "center",
     paddingHorizontal: spacing.l,
   },
-  summary: { flex: 1, gap: spacing.s, paddingVertical: spacing.xs },
-  summaryText: { ...type.headline, color: c.label },
-  sectionGap: { height: spacing.xl },
-  personText: { flex: 1, gap: 2 },
-  personName: { ...type.body, color: c.label },
-  you: { color: c.secondaryLabel },
-  personCar: { ...type.subheadline, color: c.secondaryLabel },
-  status: { flexDirection: "row", alignItems: "center", gap: 5 },
-  statusText: { ...type.subheadline, color: c.secondaryLabel },
-  eta: { ...type.headline, color: c.label },
+
+  carRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.m,
+    minHeight: TOUCH_MIN,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
+    backgroundColor: c.surface,
+    borderRadius: radius.card,
+    borderWidth: 0.5,
+    borderColor: c.separator,
+    marginBottom: spacing.s,
+  },
+  carLabel: { ...type.callout, color: c.secondaryLabel, flex: 1 },
+
+  sectionHeader: { marginTop: spacing.l },
+  sectionGap: { height: spacing.s },
+
+  person: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.m,
+    minHeight: 62,
+    paddingHorizontal: spacing.l,
+    paddingVertical: spacing.m,
+    backgroundColor: c.surface,
+    borderWidth: 0.5,
+    borderColor: c.separator,
+    borderTopWidth: 0,
+    borderLeftWidth: 3,
+    borderLeftColor: "transparent",
+  },
+  personFirst: {
+    borderTopWidth: 0.5,
+    borderTopLeftRadius: radius.card,
+    borderTopRightRadius: radius.card,
+  },
+  personLast: {
+    borderBottomLeftRadius: radius.card,
+    borderBottomRightRadius: radius.card,
+  },
+  personArrived: { borderLeftColor: c.green },
+  personText: { flex: 1, gap: 4, alignItems: "flex-start" },
+  personName: { ...type.bodySemi, color: c.label },
+  you: { ...type.callout, color: c.tertiaryLabel },
+  personStatus: { alignItems: "flex-end", minWidth: 72 },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  statusText: { ...type.footnote, color: c.secondaryLabel },
+  statusMuted: { ...type.footnote, color: c.tertiaryLabel },
+  eta: { ...type.monoMedium, color: c.label },
+
+  footer: { gap: spacing.m, marginTop: spacing.xl },
 }));

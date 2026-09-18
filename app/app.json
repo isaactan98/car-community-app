@@ -53,7 +53,7 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0F1115"
+          "backgroundColor": "#0B0D11"
         }
       ],
       "@maplibre/maplibre-react-native",

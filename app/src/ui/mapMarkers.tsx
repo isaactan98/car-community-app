@@ -1,13 +1,16 @@
 /**
- * Map annotations shared by the create-run picker and the live map, styled
- * like MapKit markers: places are glyph pins, people are dots. Use the
- * exported anchor/offset props with <Marker> so the pin tip or dot centre
- * lands exactly on its coordinate.
+ * Map annotations shared by the create-run picker and the live map. Places
+ * are glyph pins, people are dots with a mono caption — the same numeric
+ * voice the rest of the app speaks in, so a label on the map and a row on
+ * the board read as the same system.
+ *
+ * Use the exported anchor/offset props with <Marker> so the pin tip or dot
+ * centre lands exactly on its coordinate.
  */
 import { Text, View, type ColorValue } from "react-native";
 
 import { Icon } from "./Icon";
-import { makeStyles, type, usePalette } from "./theme";
+import { makeStyles, radius, type, usePalette } from "./theme";
 
 export type PlaceKind = "meetup" | "destination";
 
@@ -33,14 +36,14 @@ export function PlaceMarker({
     count && count > 0 ? `${PLACE_LABEL[kind]} · ${count} here` : PLACE_LABEL[kind];
   return (
     <View style={s.placeWrap} accessibilityLabel={caption}>
-      <Text style={s.caption} numberOfLines={1} maxFontSizeMultiplier={1.5}>
-        {caption}
+      <Text style={s.caption} numberOfLines={1} maxFontSizeMultiplier={1.4}>
+        {caption.toUpperCase()}
       </Text>
       <View style={[s.pin, kind === "destination" ? s.pinDestination : s.pinMeetup]}>
         <Icon
           name={kind === "meetup" ? "meetup" : "destination"}
-          size={16}
-          color={kind === "meetup" ? c.onTint : c.surface}
+          size={15}
+          color={kind === "meetup" ? c.onTint : c.background}
         />
       </View>
       <View style={[s.tail, kind === "destination" ? s.pinDestination : s.pinMeetup]} />
@@ -52,7 +55,7 @@ export function PlaceMarker({
 const DOT_PAD = 6;
 
 function dotSize(isSelf?: boolean): number {
-  return isSelf ? 22 : 18;
+  return isSelf ? 20 : 16;
 }
 
 /** Dot centre on the coordinate; the name label hangs below it. */
@@ -89,14 +92,14 @@ export function PersonDot({
             height: size,
             borderRadius: size / 2,
             backgroundColor: color,
-            borderWidth: selected ? 4 : 2.5,
+            borderWidth: selected ? 3.5 : 2.5,
           },
         ]}
       />
       <Text
         style={[s.label, selected && s.labelSelected]}
         numberOfLines={1}
-        maxFontSizeMultiplier={1.5}
+        maxFontSizeMultiplier={1.4}
       >
         {isSelf ? "You" : name}
         {note ? ` · ${note}` : ""}
@@ -108,26 +111,28 @@ export function PersonDot({
 const useStyles = makeStyles((c) => ({
   placeWrap: { alignItems: "center" },
   caption: {
-    ...type.caption1,
-    fontWeight: "600",
+    ...type.eyebrow,
+    fontSize: 9,
+    lineHeight: 12,
+    letterSpacing: 1.4,
     color: c.label,
     backgroundColor: c.mapChip,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: radius.chip,
     overflow: "hidden",
     marginBottom: 3,
   },
   pin: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#FFFFFF",
     shadowColor: "#000",
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.3,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
   },
@@ -140,22 +145,23 @@ const useStyles = makeStyles((c) => ({
     transform: [{ rotate: "45deg" }],
     marginTop: -5,
   },
-  personWrap: { alignItems: "center", maxWidth: 120, padding: DOT_PAD },
+  personWrap: { alignItems: "center", maxWidth: 124, padding: DOT_PAD },
   dot: {
     borderColor: "#FFFFFF",
     shadowColor: "#000",
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
   },
   label: {
-    ...type.caption2,
-    fontWeight: "600",
+    ...type.monoSmall,
+    fontSize: 10,
+    lineHeight: 13,
     color: c.label,
     backgroundColor: c.mapChip,
     paddingHorizontal: 5,
     paddingVertical: 1,
-    borderRadius: 5,
+    borderRadius: 4,
     overflow: "hidden",
     marginTop: 3,
   },
