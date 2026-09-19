@@ -39,6 +39,7 @@ import type { AttendeeStatus, Place, Run, RunState } from "../api/types";
 import { BATTERY_GUIDE_URL } from "../config";
 import {
   activeSessionRunId,
+  liveDiagnostics,
   startLiveSession,
   stopLiveSession,
   subscribeToRun,
@@ -369,6 +370,10 @@ export default function RunDetailScreen({
    * heads-up notification would need expo-notifications, which this build does
    * not carry.)
    */
+  // Sharing is on but no fix has arrived: the difference between "working"
+  // and "broken" from the user's side, and the one the old copy hid.
+  const waitingForFix = sharing === true && liveDiagnostics().fixesReceived === 0;
+
   const wasAtTarget = useRef<boolean | null>(null);
   useEffect(() => {
     if (!run || run.state !== "active") return;
@@ -519,12 +524,23 @@ export default function RunDetailScreen({
           onPress={() => navigation.navigate("LiveMap", { runId })}
         />
         {sharing === true && !foregroundOnly ? (
-          <InlineBanner
-            icon="sharing"
-            tone="success"
-            title="Sharing your location"
-            body="Stops automatically when the run ends or you leave."
-          />
+          waitingForFix ? (
+            // Sharing is on but the phone has no fix, so the board shows "No
+            // signal yet" for you and the map shows nothing. Say which it is.
+            <InlineBanner
+              icon="sharing"
+              tone="neutral"
+              title="Waiting for a GPS lock"
+              body="Sharing is on, but your phone hasn't got a fix yet. Outdoors it takes a moment; indoors it may not come at all."
+            />
+          ) : (
+            <InlineBanner
+              icon="sharing"
+              tone="success"
+              title="Sharing your location"
+              body="Stops automatically when the run ends or you leave."
+            />
+          )
         ) : sharing === true && foregroundOnly ? (
           <InlineBanner
             icon="warning"

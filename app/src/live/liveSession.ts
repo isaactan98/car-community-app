@@ -124,6 +124,23 @@ export interface LiveDiagnostics {
   /** Why the watchdog last replaced a socket it no longer trusted. */
   lastForcedReason: string | null;
   positionsSent: number;
+
+  // ---- the location half ----
+  // A connected socket says nothing about GPS: the socket opens before
+  // permissions are even requested. Without these, "No signal yet" and
+  // "Finding your position…" are dead ends — you cannot tell a refused
+  // permission from a foreground service that never started from a phone
+  // that simply has not got a fix yet indoors.
+  /** What the OS has granted us, as of the last start. No coordinates. */
+  locationPermission: "unknown" | "denied" | "whileInUse" | "always";
+  /** How fixes are being collected, if at all. */
+  locationMode: "not started" | "foreground only" | "background service";
+  /** Why the location pipeline failed to start, verbatim from the OS. */
+  lastLocationError: string | null;
+  /** Raw fixes handed to us by the OS (before the send cadence thins them). */
+  fixesReceived: number;
+  /** ms since the last fix arrived, or null if none ever has. */
+  lastFixAgeMs: number | null;
 }
 
 const diag = {
@@ -133,6 +150,12 @@ const diag = {
   forcedReconnects: 0,
   lastForcedReason: null as string | null,
   positionsSent: 0,
+  locationPermission: "unknown" as LiveDiagnostics["locationPermission"],
+  locationMode: "not started" as LiveDiagnostics["locationMode"],
+  lastLocationError: null as string | null,
+  fixesReceived: 0,
+  /** Wall-clock only — never the fix itself (hard constraints 1 and 4). */
+  lastFixAt: null as number | null,
 };
 
 export function liveDiagnostics(): LiveDiagnostics {
@@ -150,6 +173,11 @@ export function liveDiagnostics(): LiveDiagnostics {
     forcedReconnects: diag.forcedReconnects,
     lastForcedReason: diag.lastForcedReason,
     positionsSent: diag.positionsSent,
+    locationPermission: diag.locationPermission,
+    locationMode: diag.locationMode,
+    lastLocationError: diag.lastLocationError,
+    fixesReceived: diag.fixesReceived,
+    lastFixAgeMs: diag.lastFixAt === null ? null : Date.now() - diag.lastFixAt,
   };
 }
 
@@ -425,6 +453,8 @@ function handleFixes(fixes: Location.LocationObject[]) {
       lng: fix.coords.longitude,
       ts: fix.timestamp,
     };
+    diag.fixesReceived += 1;
+    diag.lastFixAt = Date.now();
 
     // Keep a short buffer for ETA math.
     s.recent.push(position);
@@ -655,9 +685,12 @@ async function beginSession(
   startWatchdog(s);
   startAppStateWatch();
 
+  diag.locationMode = "not started";
+  diag.lastLocationError = null;
   try {
     const fg = await Location.requestForegroundPermissionsAsync();
     if (!fg.granted) {
+      diag.locationPermission = "denied";
       emit({ kind: "sharing", sharing: false });
       return {
         started: false,
@@ -665,6 +698,7 @@ async function beginSession(
         error: "Location permission denied",
       };
     }
+    diag.locationPermission = "whileInUse";
 
     // Two-step background flow (A6). Foreground is enough to *start* sharing;
     // background is what keeps it alive with the screen off. We only reach for
@@ -699,6 +733,7 @@ async function beginSession(
     // (see waitForForeground) — starting it during the post-Settings
     // background transition crashes natively on Android 12+.
     if (bg.granted && (await waitForForeground())) {
+      diag.locationPermission = "always";
       await Location.startLocationUpdatesAsync(LOCATION_TASK, {
         accuracy: Location.Accuracy.High,
         timeInterval: 5000,
@@ -713,6 +748,7 @@ async function beginSession(
         },
       });
       s.usingBackgroundTask = true;
+      diag.locationMode = "background service";
     } else {
       // Foreground-only fallback: works while the app is open.
       s.fgWatcher = await Location.watchPositionAsync(
@@ -723,16 +759,42 @@ async function beginSession(
         },
         (fix) => handleFixes([fix]),
       );
+      diag.locationMode = "foreground only";
     }
+    void seedFromLastKnown();
     emit({ kind: "sharing", sharing: true });
     return { started: true, background: s.usingBackgroundTask };
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to start location";
+    diag.lastLocationError = message;
     emit({ kind: "sharing", sharing: false });
-    return {
-      started: false,
-      background: false,
-      error: err instanceof Error ? err.message : "Failed to start location",
-    };
+    return { started: false, background: false, error: message };
+  }
+}
+
+/**
+ * Put a dot on the map now, instead of after the first GPS lock.
+ *
+ * `Accuracy.High` asks Android for GPS, and GPS does not answer instantly —
+ * outdoors it is tens of seconds, indoors or in a carpark it may be never.
+ * Until then the map said "Finding your position…" and the board said "No
+ * signal yet", which is indistinguishable from the app being broken. The OS
+ * already holds a recent fix; using it costs nothing and is the same
+ * lat/lng/ts we would have sent anyway.
+ *
+ * Capped at two minutes and 200 m: older or vaguer than that and a stale dot
+ * in the wrong town would be worse than an honest empty map. If the real
+ * watcher beats it, the cadence check drops this one on age.
+ */
+async function seedFromLastKnown(): Promise<void> {
+  try {
+    const last = await Location.getLastKnownPositionAsync({
+      maxAge: 120_000,
+      requiredAccuracy: 200,
+    });
+    if (last) handleFixes([last]);
+  } catch {
+    // No cached fix, or the provider refused — the watcher is still running.
   }
 }
 
