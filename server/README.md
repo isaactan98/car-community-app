@@ -67,7 +67,13 @@ onboard the whole group); the `uses` counter is tracked in the DB.
 | `SWEEP_INTERVAL_MS` | `60000` | Auto-end / retention sweep cadence |
 | `AUTO_END_AFTER_MS` | `7200000` (2 h) | Auto-end an active run after this long with no position updates |
 | `RETENTION_MS` | `86400000` (24 h) | Purge position history this long after a run ends |
-| `GEOFENCE_RADIUS_M` | `150` | Arrival geofence radius around the meetup |
+| `GEOFENCE_RADIUS_M` | `150` | Arrival geofence radius, around the meetup **and** the destination |
+| `DEPART_RADIUS_M` | `500` | How far a checked-in member must be from the meetup to count as having left it |
+| `GEOCODER_URL` | Public Photon instance | Photon-compatible place-search upstream (`?q=&lat=&lon=&limit=`) |
+| `GEOCODER_USER_AGENT` | `runs-app/1.0 (…)` | Sent upstream. Free geocoders require a real, identifying agent |
+| `GEOCODER_TIMEOUT_MS` | `6000` | Give up on the geocoder after this long |
+| `GEOCODER_CACHE_TTL_MS` | `86400000` (24 h) | How long a search result stays cached |
+| `GEOCODER_RATE_PER_MINUTE` | `30` | Upstream-hitting searches allowed per member per minute |
 
 ## Behavior summary
 
@@ -76,6 +82,18 @@ onboard the whole group); the `uses` counter is tracked in the DB.
 - **Geofence auto check-in:** while a run is active, an rsvped member whose
   position lands within 150 m (haversine) of the meetup flips to `arrived`
   and `member_arrived` is broadcast.
+- **The destination leg (R8):** a run is two legs. The same 150 m fence around
+  the destination flips `atDestination` and broadcasts `member_at_destination`
+  — open to any joined member, since driving straight to the destination is a
+  normal way to catch a run you joined late. The run's `phase` moves
+  `gathering → driving` (one-way, `run_phase` broadcast) once at least half of
+  the members who checked in are more than `DEPART_RADIUS_M` from the meetup.
+  Nobody presses a button: a run has a creator, not a leader.
+- **ETAs follow the sender's leg:** to the meetup before check-in, to the
+  destination once the group has left, and ignored in between or after arrival.
+- **Place search (R9):** `GET /places/search` proxies a free OSM geocoder
+  (Photon by default), cached and rate-limited per member. The app never calls
+  a geocoder directly — see `docs/CONTRACT.md` for why.
 - **Privacy hard stops:** leaving a run (`DELETE /runs/:id/rsvp`) closes that
   member's sockets immediately and drops them from snapshots; ending a run
   broadcasts `run_state: ended` and closes every socket. Position ingest is

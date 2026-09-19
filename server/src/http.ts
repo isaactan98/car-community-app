@@ -1,5 +1,6 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { HttpError, type Service } from './service.js';
+import type { PlaceSearch } from './places.js';
 import { log } from './logger.js';
 
 declare module 'express-serve-static-core' {
@@ -46,7 +47,11 @@ const WS_DIAG_PAGE = `<!doctype html>
   }
 </script>`;
 
-export function createHttpApp(service: Service, enableWsDiag = false): express.Express {
+export function createHttpApp(
+  service: Service,
+  places: PlaceSearch,
+  enableWsDiag = false,
+): express.Express {
   const app = express();
   app.disable('x-powered-by');
 
@@ -191,6 +196,16 @@ export function createHttpApp(service: Service, enableWsDiag = false): express.E
 
   api.post('/runs/:id/end', (req, res) => {
     res.json(service.endRun(req.params.id, req.member!.id));
+  });
+
+  // ----- place search (R9) -----
+
+  api.get('/places/search', (req, res, next) => {
+    const { q, lat, lng, limit } = req.query;
+    places
+      .search(req.member!.id, { q, lat, lng, limit })
+      .then((found) => res.json({ places: found }))
+      .catch(next);
   });
 
   // ----- errors -----

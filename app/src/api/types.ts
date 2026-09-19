@@ -35,11 +35,23 @@ export interface Me extends Member {
 export type RunState = "upcoming" | "active" | "ended";
 export type AttendeeStatus = "rsvped" | "arrived" | "left";
 
+/**
+ * Which leg the *group* is on: converging on the meetup, or driving to the
+ * destination. Server-derived and one-way (docs/CONTRACT.md). A run without a
+ * destination is `gathering` for its whole life.
+ *
+ * A member's own leg is not this — see lib/leg.ts. Somebody still on the way to
+ * the meetup is on leg 1 no matter what the rest of the convoy is doing.
+ */
+export type RunPhase = "gathering" | "driving";
+
 export interface Attendee {
   memberId: string;
   displayName: string;
   carName: string | null;
+  /** Checked in at the MEETUP. Reaching the destination is `atDestination`. */
   status: AttendeeStatus;
+  atDestination: boolean;
 }
 
 export interface Run {
@@ -50,6 +62,7 @@ export interface Run {
   destination: Place | null;
   startsAt: string; // ISO-8601
   state: RunState;
+  phase: RunPhase;
   inviteDeepLink: string;
   attendees: Attendee[];
 }
@@ -66,6 +79,7 @@ export interface SnapshotMember {
   displayName: string;
   carName: string | null;
   status: AttendeeStatus;
+  atDestination: boolean;
   lastPosition: Position | null;
   etaSeconds: number | null;
 }
@@ -73,12 +87,25 @@ export interface SnapshotMember {
 export interface SnapshotMessage {
   type: "snapshot";
   runState: RunState;
+  runPhase: RunPhase;
   members: SnapshotMember[];
 }
 
+/** Reached the meetup. */
 export interface MemberArrivedMessage {
   type: "member_arrived";
   memberId: string;
+}
+
+/** Reached the destination. */
+export interface MemberAtDestinationMessage {
+  type: "member_at_destination";
+  memberId: string;
+}
+
+export interface RunPhaseMessage {
+  type: "run_phase";
+  phase: RunPhase;
 }
 
 export interface RunStateMessage {
@@ -89,7 +116,17 @@ export interface RunStateMessage {
 export type ServerMessage =
   | SnapshotMessage
   | MemberArrivedMessage
+  | MemberAtDestinationMessage
+  | RunPhaseMessage
   | RunStateMessage;
+
+/** A place returned by `GET /places/search` (R9). */
+export interface PlaceResult {
+  label: string;
+  detail: string;
+  lat: number;
+  lng: number;
+}
 
 /** Client → server. Exactly these keys; extra keys (esp. speed) are rejected. */
 export interface PositionMessage {

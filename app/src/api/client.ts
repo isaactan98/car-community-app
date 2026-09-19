@@ -4,7 +4,7 @@
  * quickly when the homelab is down.
  */
 import { API_BASE, REQUEST_TIMEOUT_MS } from "../config";
-import type { Car, JoinResponse, Me, Place, Run } from "./types";
+import type { Car, JoinResponse, LatLng, Me, Place, PlaceResult, Run } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -163,4 +163,29 @@ export function endRun(runId: string): Promise<unknown> {
   return request<unknown>(`/runs/${encodeURIComponent(runId)}/end`, {
     method: "POST",
   });
+}
+
+// ---- Place search (R9) ----
+
+/**
+ * Text search for a pin, biased towards `near` (pass the map's centre so
+ * "caltex" ranks JB above California).
+ *
+ * The geocoder lives behind our own server on purpose — see docs/CONTRACT.md.
+ * Callers must debounce: one request per keystroke is both rude to the
+ * upstream provider and a fast route to a 429.
+ */
+export async function searchPlaces(
+  query: string,
+  near?: LatLng | null,
+  limit?: number,
+): Promise<PlaceResult[]> {
+  const params = new URLSearchParams({ q: query });
+  if (near) {
+    params.set("lat", String(near.lat));
+    params.set("lng", String(near.lng));
+  }
+  if (limit !== undefined) params.set("limit", String(limit));
+  const data = await request<{ places?: PlaceResult[] }>(`/places/search?${params}`);
+  return data?.places ?? [];
 }

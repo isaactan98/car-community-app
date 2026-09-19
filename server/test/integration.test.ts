@@ -84,6 +84,7 @@ describe('runs CRUD + rsvp + lifecycle', () => {
       meetup: MEETUP,
       destination: { lat: 1.4655, lng: 103.7578, label: 'JB Kopitiam' },
       state: 'upcoming',
+      phase: 'gathering',
       attendees: [],
     });
     expect(run.inviteDeepLink).toBe(`runs://run/${run.id}`);
@@ -115,7 +116,7 @@ describe('runs CRUD + rsvp + lifecycle', () => {
     const r2 = await api(t, 'POST', `/runs/${run.id}/rsvp`, { token: bob.token, body: { carId: car.id } });
     expect(r2.status).toBe(200);
     expect(r2.json.attendees).toEqual([
-      { memberId: bob.id, displayName: 'Bob', carName: 'ND2 MX-5', status: 'rsvped' },
+      { memberId: bob.id, displayName: 'Bob', carName: 'ND2 MX-5', status: 'rsvped', atDestination: false },
     ]);
 
     // Alice may not RSVP with Bob's car.

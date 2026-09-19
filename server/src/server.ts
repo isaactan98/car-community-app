@@ -3,6 +3,7 @@ import { openDb, type DB } from './db.js';
 import { loadConfig, type Config } from './config.js';
 import { Service } from './service.js';
 import { Hub } from './hub.js';
+import { PlaceSearch } from './places.js';
 import { createHttpApp } from './http.js';
 import { attachWs } from './ws.js';
 import { log } from './logger.js';
@@ -24,7 +25,8 @@ export function createRunsServer(overrides: Partial<Config> = {}): RunsServer {
   const service = new Service(db, config, hub);
   service.seedInviteCodes(config.seedInviteCodes);
 
-  const app = createHttpApp(service, config.enableWsDiag);
+  const places = new PlaceSearch(config);
+  const app = createHttpApp(service, places, config.enableWsDiag);
   const server = createServer(app);
   const ws = attachWs(server, service, hub, config);
 

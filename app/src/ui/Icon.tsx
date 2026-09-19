@@ -44,6 +44,7 @@ const ICONS = {
   start: { ios: "flag.fill", android: "flag" },
   live: { ios: "dot.radiowaves.left.and.right", android: "cell_tower" },
   calendar: { ios: "calendar", android: "schedule" },
+  search: { ios: "magnifyingglass", android: "search" },
 } satisfies Record<string, { ios: SFSymbol; android: AndroidSymbol }>;
 
 export type IconName = keyof typeof ICONS;

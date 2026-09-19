@@ -12,11 +12,15 @@ export interface Point {
   label: string;
 }
 
+export type RunPhase = 'gathering' | 'driving';
+
 export interface AttendeeView {
   memberId: string;
   displayName: string;
   carName: string | null;
+  /** Meetup check-in only. Reaching the destination is `atDestination`. */
   status: 'rsvped' | 'arrived' | 'left';
+  atDestination: boolean;
 }
 
 export interface RunView {
@@ -27,6 +31,8 @@ export interface RunView {
   destination: Point | null;
   startsAt: string;
   state: 'upcoming' | 'active' | 'ended';
+  /** Which leg the group is on. Always 'gathering' when there is no destination. */
+  phase: RunPhase;
   inviteDeepLink: string;
   attendees: AttendeeView[];
 }
@@ -36,6 +42,7 @@ export interface SnapshotMember {
   displayName: string;
   carName: string | null;
   status: 'rsvped' | 'arrived';
+  atDestination: boolean;
   lastPosition: { lat: number; lng: number; ts: number } | null;
   etaSeconds: number | null;
 }
@@ -43,6 +50,7 @@ export interface SnapshotMember {
 export interface SnapshotMessage {
   type: 'snapshot';
   runState: 'upcoming' | 'active' | 'ended';
+  runPhase: RunPhase;
   members: SnapshotMember[];
 }
 
@@ -85,6 +93,7 @@ interface RunRow {
   dest_label: string | null;
   starts_at: string;
   state: 'upcoming' | 'active' | 'ended';
+  phase: RunPhase;
   ended_at: number | null;
   last_activity_at: number | null;
 }
@@ -186,19 +195,26 @@ export class Service {
   private attendeeViews(runId: string): AttendeeView[] {
     const rows = this.db
       .prepare(
-        `SELECT ra.member_id, ra.status, m.display_name, c.name AS car_name
+        `SELECT ra.member_id, ra.status, ra.at_destination, m.display_name, c.name AS car_name
          FROM run_attendees ra
          JOIN members m ON m.id = ra.member_id
          LEFT JOIN cars c ON c.id = ra.car_id
          WHERE ra.run_id = ?
          ORDER BY ra.created_at`,
       )
-      .all(runId) as { member_id: string; status: AttendeeView['status']; display_name: string; car_name: string | null }[];
+      .all(runId) as {
+        member_id: string;
+        status: AttendeeView['status'];
+        at_destination: number;
+        display_name: string;
+        car_name: string | null;
+      }[];
     return rows.map((r) => ({
       memberId: r.member_id,
       displayName: r.display_name,
       carName: r.car_name,
       status: r.status,
+      atDestination: r.at_destination === 1,
     }));
   }
 
@@ -214,6 +230,8 @@ export class Service {
           : null,
       startsAt: row.starts_at,
       state: row.state,
+      // A run with no destination has only one leg; never report it otherwise.
+      phase: row.dest_lat !== null && row.dest_lng !== null ? row.phase : 'gathering',
       inviteDeepLink: this.config.deepLinkBase + row.id,
       attendees: this.attendeeViews(row.id),
     };
@@ -360,9 +378,7 @@ export class Service {
 
     const run = this.runRow(runId);
     if (run.state !== 'active') return 'run_not_active';
-    const attendee = this.db
-      .prepare('SELECT status FROM run_attendees WHERE run_id = ? AND member_id = ?')
-      .get(runId, memberId) as { status: AttendeeView['status'] } | undefined;
+    const attendee = this.attendeeRow(runId, memberId);
     if (!attendee || attendee.status === 'left') return 'not_joined';
 
     this.db
@@ -370,19 +386,99 @@ export class Service {
       .run(runId, memberId, lat, lng, ts);
     this.db.prepare('UPDATE runs SET last_activity_at = ? WHERE id = ?').run(Date.now(), runId);
 
-    // Geofence auto check-in (spec R3): rsvped member enters 150 m of meetup.
-    if (attendee.status === 'rsvped') {
-      const dist = haversineMeters(lat, lng, run.meetup_lat, run.meetup_lng);
-      if (dist <= this.config.geofenceRadiusM) {
-        this.db
-          .prepare("UPDATE run_attendees SET status = 'arrived' WHERE run_id = ? AND member_id = ?")
-          .run(runId, memberId);
-        this.etas.get(runId)?.delete(memberId); // arrived: ETA no longer applies
-        this.realtime.broadcast(runId, { type: 'member_arrived', memberId });
-        log.info('member arrived (geofence)', { runId, memberId });
+    this.applyGeofences(run, memberId, attendee, lat, lng);
+    return null;
+  }
+
+  private attendeeRow(
+    runId: string,
+    memberId: string,
+  ): { status: AttendeeView['status']; at_destination: number } | undefined {
+    return this.db
+      .prepare('SELECT status, at_destination FROM run_attendees WHERE run_id = ? AND member_id = ?')
+      .get(runId, memberId) as { status: AttendeeView['status']; at_destination: number } | undefined;
+  }
+
+  /**
+   * Geofence and phase side effects for one freshly stored position (R3, R8).
+   *
+   * Both fences are one-way and both are evaluated on every position, because
+   * a member can check in at the meetup and then, later in the same run, reach
+   * the destination. The departure check runs last so it reads the arrival
+   * this call may just have written.
+   */
+  private applyGeofences(
+    run: RunRow,
+    memberId: string,
+    attendee: { status: AttendeeView['status']; at_destination: number },
+    lat: number,
+    lng: number,
+  ): void {
+    const radius = this.config.geofenceRadiusM;
+
+    if (
+      attendee.status === 'rsvped' &&
+      haversineMeters(lat, lng, run.meetup_lat, run.meetup_lng) <= radius
+    ) {
+      this.db
+        .prepare("UPDATE run_attendees SET status = 'arrived' WHERE run_id = ? AND member_id = ?")
+        .run(run.id, memberId);
+      this.etas.get(run.id)?.delete(memberId); // at the meetup: that ETA is spent
+      this.realtime.broadcast(run.id, { type: 'member_arrived', memberId });
+      log.info('member arrived (geofence)', { runId: run.id, memberId });
+    }
+
+    if (run.dest_lat === null || run.dest_lng === null) return;
+
+    // The destination fence is open to every joined member, checked in at the
+    // meetup or not: driving straight to the destination is a normal way to
+    // catch a run you joined late.
+    if (
+      attendee.at_destination === 0 &&
+      haversineMeters(lat, lng, run.dest_lat, run.dest_lng) <= radius
+    ) {
+      this.db
+        .prepare('UPDATE run_attendees SET at_destination = 1 WHERE run_id = ? AND member_id = ?')
+        .run(run.id, memberId);
+      this.etas.get(run.id)?.delete(memberId); // arrived: nothing left to estimate
+      this.realtime.broadcast(run.id, { type: 'member_at_destination', memberId });
+      log.info('member reached destination (geofence)', { runId: run.id, memberId });
+    }
+
+    if (run.phase === 'gathering' && this.hasDeparted(run)) {
+      this.db.prepare("UPDATE runs SET phase = 'driving' WHERE id = ?").run(run.id);
+      this.realtime.broadcast(run.id, { type: 'run_phase', phase: 'driving' });
+      log.info('run left the meetup', { runId: run.id });
+    }
+  }
+
+  /**
+   * Has the group left the meetup?
+   *
+   * True once at least half of the members who checked in are further than
+   * `departRadiusM` from it. Half rather than all, because the convoy is
+   * leaderless (Hard Constraint 2) and stragglers are normal; a radius well
+   * outside the geofence, because one person walking to the shop across the
+   * road must not flip the whole run onto its second leg.
+   */
+  private hasDeparted(run: RunRow): boolean {
+    const arrived = this.db
+      .prepare("SELECT member_id FROM run_attendees WHERE run_id = ? AND status = 'arrived'")
+      .all(run.id) as { member_id: string }[];
+    if (arrived.length === 0) return false;
+    const lastPos = this.db.prepare(
+      `SELECT lat, lng FROM positions
+       WHERE run_id = ? AND member_id = ?
+       ORDER BY ts DESC, id DESC LIMIT 1`,
+    );
+    let gone = 0;
+    for (const { member_id } of arrived) {
+      const p = lastPos.get(run.id, member_id) as { lat: number; lng: number } | undefined;
+      if (p && haversineMeters(p.lat, p.lng, run.meetup_lat, run.meetup_lng) > this.config.departRadiusM) {
+        gone += 1;
       }
     }
-    return null;
+    return gone >= Math.max(1, Math.ceil(arrived.length / 2));
   }
 
   /** Validate + store an ETA message (in memory only). */
@@ -395,11 +491,17 @@ export class Service {
 
     const run = this.runRow(runId);
     if (run.state !== 'active') return 'run_not_active';
-    const attendee = this.db
-      .prepare('SELECT status FROM run_attendees WHERE run_id = ? AND member_id = ?')
-      .get(runId, memberId) as { status: AttendeeView['status'] } | undefined;
+    const attendee = this.attendeeRow(runId, memberId);
     if (!attendee || attendee.status === 'left') return 'not_joined';
-    if (attendee.status === 'arrived') return null; // pre-arrival only; silently ignore
+
+    // An ETA is to the sender's current leg target (docs/CONTRACT.md): the
+    // meetup until they check in, the destination once the group has left it.
+    // Outside those two windows there is nothing to estimate, so drop the
+    // message rather than publish a number no one can interpret.
+    const onDrivingLeg =
+      run.dest_lat !== null && run.dest_lng !== null && run.phase === 'driving';
+    if (attendee.at_destination === 1) return null;
+    if (attendee.status === 'arrived' && !onDrivingLeg) return null;
 
     let runEtas = this.etas.get(runId);
     if (!runEtas) {
@@ -430,14 +532,20 @@ export class Service {
     const run = this.runRow(runId);
     const rows = this.db
       .prepare(
-        `SELECT ra.member_id, ra.status, m.display_name, c.name AS car_name
+        `SELECT ra.member_id, ra.status, ra.at_destination, m.display_name, c.name AS car_name
          FROM run_attendees ra
          JOIN members m ON m.id = ra.member_id
          LEFT JOIN cars c ON c.id = ra.car_id
          WHERE ra.run_id = ? AND ra.status != 'left'
          ORDER BY ra.created_at`,
       )
-      .all(runId) as { member_id: string; status: 'rsvped' | 'arrived'; display_name: string; car_name: string | null }[];
+      .all(runId) as {
+        member_id: string;
+        status: 'rsvped' | 'arrived';
+        at_destination: number;
+        display_name: string;
+        car_name: string | null;
+      }[];
     const lastPos = this.db.prepare(
       `SELECT lat, lng, ts FROM positions
        WHERE run_id = ? AND member_id = ?
@@ -447,6 +555,7 @@ export class Service {
     return {
       type: 'snapshot',
       runState: run.state,
+      runPhase: run.dest_lat !== null && run.dest_lng !== null ? run.phase : 'gathering',
       members: rows.map((r) => {
         const p = lastPos.get(runId, r.member_id) as { lat: number; lng: number; ts: number } | undefined;
         return {
@@ -454,6 +563,7 @@ export class Service {
           displayName: r.display_name,
           carName: r.car_name,
           status: r.status,
+          atDestination: r.at_destination === 1,
           lastPosition: p ?? null,
           etaSeconds: runEtas?.get(r.member_id) ?? null,
         };
