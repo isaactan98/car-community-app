@@ -44,7 +44,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getRun } from "../api/client";
 import type { LatLng, Place, SnapshotMember } from "../api/types";
 import { MAP_STYLE_DARK_URL, MAP_STYLE_MUTED_URL } from "../config";
-import { activeSessionRunId, isSocketConnected, subscribeToRun } from "../live/liveSession";
+import {
+  activeSessionRunId,
+  isSocketConnected,
+  liveDiagnostics,
+  subscribeToRun,
+} from "../live/liveSession";
 import { formatEta } from "../lib/eta";
 import { distanceToCarAhead, formatDistance, haversineMeters } from "../lib/geo";
 import { currentLeg, legTarget, runPhase, type Leg } from "../lib/leg";
@@ -415,9 +420,9 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
                 </Text>
               </>
             ) : (
-              <Text style={s.aheadEmpty} numberOfLines={2}>
+              <Text style={s.aheadEmpty} numberOfLines={3}>
                 {!hasMe
-                  ? "Finding your position…"
+                  ? noPositionReason()
                   : positioned.length <= 1
                     ? state.connected
                       ? "Nobody else is sharing a position yet."
@@ -464,6 +469,31 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
       </Sheet>
     </View>
   );
+}
+
+/**
+ * Why there is no dot for me yet.
+ *
+ * "Finding your position…" was a dead end: a refused permission, a foreground
+ * service that never started and a phone that simply has not got a satellite
+ * lock all looked identical, and all of them look like a broken app. The live
+ * session already knows which it is — this just says so.
+ */
+function noPositionReason(): string {
+  const d = liveDiagnostics();
+  if (d.locationPermission === "denied") {
+    return "Location is off for Runs. Turn it on in Settings — the group can't see you until you do.";
+  }
+  if (d.lastLocationError) {
+    return `Location didn't start: ${d.lastLocationError}`;
+  }
+  if (d.locationMode === "not started") {
+    return "Not sharing yet — join the run to put yourself on the map.";
+  }
+  if (d.fixesReceived === 0) {
+    return "Waiting for a GPS lock. This takes a moment outdoors, and may never come indoors or in a basement carpark.";
+  }
+  return "Finding your position…";
 }
 
 /** Camera flights are zoom animations; skip them under Reduce Motion. */

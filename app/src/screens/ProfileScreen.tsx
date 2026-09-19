@@ -351,6 +351,41 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
         </Text>
       </View>
 
+      <View style={s.block}>
+        <Eyebrow title="Location" />
+        <Card style={s.diag}>
+          <DiagRow
+            label="Permission"
+            value={
+              {
+                unknown: "not asked yet",
+                denied: "denied — the group can't see you",
+                whileInUse: "while using the app",
+                always: "always (background)",
+              }[diag.locationPermission]
+            }
+          />
+          <DiagRow label="Collecting" value={diag.locationMode} />
+          <DiagRow
+            label="Fixes"
+            value={
+              diag.fixesReceived === 0
+                ? "none yet — GPS has not answered"
+                : `${diag.fixesReceived} · last ${formatAgeMs(diag.lastFixAgeMs)}`
+            }
+          />
+          {diag.lastLocationError ? (
+            <DiagRow label="Last error" value={diag.lastLocationError} />
+          ) : null}
+        </Card>
+        <Text style={s.hint}>
+          A connected socket says nothing about GPS — the socket opens before the
+          app has even asked for location. If &quot;Fixes&quot; stays at none while
+          &quot;Collecting&quot; is running, the phone has not got a satellite lock:
+          go outside, away from a roof. Counts and timings only; no coordinates.
+        </Text>
+      </View>
+
       <Button
         title="Leave the group on this phone"
         role="destructive"
