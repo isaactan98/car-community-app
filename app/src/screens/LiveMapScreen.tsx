@@ -42,11 +42,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getRun } from "../api/client";
-import type { LatLng, SnapshotMember } from "../api/types";
+import type { LatLng, Place, SnapshotMember } from "../api/types";
 import { MAP_STYLE_DARK_URL, MAP_STYLE_MUTED_URL } from "../config";
 import { activeSessionRunId, isSocketConnected, subscribeToRun } from "../live/liveSession";
 import { formatEta } from "../lib/eta";
 import { distanceToCarAhead, formatDistance, haversineMeters } from "../lib/geo";
+import { currentLeg, legTarget, runPhase, type Leg } from "../lib/leg";
 import { initialLiveRunState, liveRunReducer } from "../lib/snapshotCache";
 import { formatAge, isStale } from "../lib/staleness";
 import type { ScreenProps } from "../navigation/types";
@@ -109,10 +110,16 @@ function dotColor(
   m: SnapshotMember,
   isSelf: boolean,
   stale: boolean,
+  leg: Leg,
 ): ColorValue {
   if (stale) return c.gray;
   if (isSelf) return c.tint;
-  return m.status === "arrived" ? c.green : c.blue;
+  return hasReached(m, leg) ? c.green : c.blue;
+}
+
+/** Has this member finished the leg the group is on? */
+function hasReached(m: SnapshotMember, leg: Leg): boolean {
+  return leg === "destination" ? m.atDestination === true : m.status === "arrived";
 }
 
 export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMap">) {
@@ -224,12 +231,20 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
     fitOnFirstPositions();
   }, [mapReady, positioned.length]);
 
+  // My leg and the group's are different questions. Mine decides where I am
+  // navigating (and which way "ahead" points); the group's decides what the
+  // crowd on the map means. A straggler still driving to the meetup keeps the
+  // meetup as their target however far ahead everyone else is.
+  const groupLeg: Leg = run && runPhase(run) === "driving" ? "destination" : "meetup";
+  const myLeg: Leg = run ? currentLeg(run, me ?? null) : "meetup";
+  const myTarget: Place | null = run ? legTarget(run, myLeg) : null;
+
   // Cheap enough to derive every render (≤ tens of members).
   const carAhead =
-    run && me?.lastPosition
+    run && me?.lastPosition && myTarget
       ? distanceToCarAhead(
           me.lastPosition,
-          run.destination ?? run.meetup,
+          myTarget,
           positioned
             .filter(
               (m) =>
@@ -247,17 +262,31 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
 
   if (!run) return <Loading />;
 
+  // Past the `!run` guard the leg target is always a real place.
+  const target = legTarget(run, myLeg);
+  const iAmThere = me ? hasReached(me, myLeg) : false;
+  // Where the big button sends you: the place you still have to drive to.
+  // Standing at the meetup, that is the destination — whether or not the group
+  // has formally moved off, you want it queued in Waze either way. Distinct
+  // from the leg target, which drives the ETA and must not run ahead of the
+  // server's own rule.
+  const navToDestination =
+    !!run.destination && (myLeg === "destination" || iAmThere);
+  const navTarget = navToDestination ? run.destination! : target;
+
   const stale =
     !state.connected || (state.snapshotAt !== null && now - state.snapshotAt > 60_000);
   const clustered = zoom < CLUSTER_ZOOM;
   const visible = positioned.filter(
     (m) =>
       !clustered ||
-      m.status !== "arrived" ||
+      !hasReached(m, groupLeg) ||
       m.memberId === selfId ||
       m.memberId === selected,
   );
-  const gathered = clustered ? positioned.length - visible.length : 0;
+  const folded = clustered ? positioned.length - visible.length : 0;
+  const gathered = groupLeg === "meetup" ? folded : 0;
+  const atDestination = groupLeg === "destination" ? folded : 0;
 
   const initialBounds = boundsOf(
     run.destination ? [run.meetup, run.destination] : [run.meetup],
@@ -302,7 +331,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
             >
               <PersonDot
                 name={m.displayName}
-                color={dotColor(c, m, isSelf, memberStale)}
+                color={dotColor(c, m, isSelf, memberStale, groupLeg)}
                 isSelf={isSelf}
                 selected={m.memberId === selected}
                 note={memberStale ? formatAge(pos.ts, now) : undefined}
@@ -319,7 +348,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
             lngLat={[run.destination.lng, run.destination.lat]}
             {...PLACE_MARKER_PROPS}
           >
-            <PlaceMarker kind="destination" />
+              <PlaceMarker kind="destination" count={atDestination} />
           </Marker>
         ) : null}
       </Map>
@@ -333,6 +362,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
         />
         {!stale ? <LiveBadge style={s.liveOnMap} /> : null}
         <View style={s.spacer} />
+        <LegChip leg={myLeg} target={navTarget} reached={iAmThere} />
         {hasMe ? (
           <GlassButton
             icon="locate"
@@ -353,8 +383,16 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
           <SelectedMember
             member={selectedMember}
             isSelf={selectedMember.memberId === selfId}
+            leg={groupLeg}
+            destinationLabel={run.destination?.label ?? ""}
             now={now}
             onClose={() => setSelected(null)}
+          />
+        ) : iAmThere ? (
+          <ArrivedReadout
+            leg={myLeg}
+            destination={run.destination}
+            groupHasLeft={groupLeg === "destination"}
           />
         ) : (
           <View
@@ -396,6 +434,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
             me={me ?? null}
             selfId={selfId}
             selected={selected}
+            leg={groupLeg}
             now={now}
             onSelect={(m) => {
               setSelected(m.memberId);
@@ -406,10 +445,10 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
 
         <View style={s.wazeRow}>
           <WazeButton
-            lat={(run.destination ?? run.meetup).lat}
-            lng={(run.destination ?? run.meetup).lng}
-            label={`Waze to ${(run.destination ?? run.meetup).label}`}
-            place={run.destination ? "the destination" : "the meetup"}
+            lat={navTarget.lat}
+            lng={navTarget.lng}
+            label={`Waze to ${navTarget.label || "the next stop"}`}
+            place={navToDestination ? "the destination" : "the meetup"}
             role="filled"
             size="large"
             style={s.flex}
@@ -490,6 +529,7 @@ function CrewStrip({
   me,
   selfId,
   selected,
+  leg,
   now,
   onSelect,
 }: {
@@ -497,6 +537,8 @@ function CrewStrip({
   me: SnapshotMember | null;
   selfId: string;
   selected: string | null;
+  /** The group's leg — decides whether "Arrived" means the meetup or the end. */
+  leg: Leg;
   now: number;
   onSelect: (m: SnapshotMember) => void;
 }) {
@@ -526,7 +568,7 @@ function CrewStrip({
           ? `${formatAge(pos.ts, now)} ago`
           : isSelf
             ? (m.carName ?? "You")
-            : m.status === "arrived"
+            : hasReached(m, leg)
               ? "Arrived"
               : myPos
                 ? formatDistance(haversineMeters(myPos, pos))
@@ -548,7 +590,7 @@ function CrewStrip({
               name={m.displayName}
               size={26}
               state={
-                isSelf ? "self" : m.status === "arrived" && !memberStale ? "arrived" : "default"
+                isSelf ? "self" : hasReached(m, leg) && !memberStale ? "arrived" : "default"
               }
             />
             <View style={s.chipText}>
@@ -604,19 +646,26 @@ function StatusLine({
 function SelectedMember({
   member,
   isSelf,
+  leg,
+  destinationLabel,
   now,
   onClose,
 }: {
   member: SnapshotMember;
   isSelf: boolean;
+  leg: Leg;
+  destinationLabel: string;
   now: number;
   onClose: () => void;
 }) {
   const s = useStyles();
   const c = usePalette();
   const pos = member.lastPosition!;
-  const status =
-    member.status === "arrived"
+  // Where they are, in terms of the leg the group is actually on — "At the
+  // meetup" is wrong the moment the convoy is on the highway.
+  const status = member.atDestination
+    ? `At ${destinationLabel || "the destination"}`
+    : leg === "meetup" && member.status === "arrived"
       ? "At the meetup"
       : member.etaSeconds !== null
         ? `ETA ${formatEta(member.etaSeconds)}`
@@ -627,7 +676,7 @@ function SelectedMember({
         <Avatar
           name={member.displayName}
           size={42}
-          state={isSelf ? "self" : member.status === "arrived" ? "arrived" : "default"}
+          state={isSelf ? "self" : hasReached(member, leg) ? "arrived" : "default"}
         />
         <View style={s.flex}>
           <Text style={s.selectedName} numberOfLines={1}>
@@ -658,6 +707,102 @@ function SelectedMember({
           size="regular"
         />
       ) : null}
+    </View>
+  );
+}
+
+/**
+ * Which leg you are on, in the one place a driver's eye already goes.
+ *
+ * This is the answer to "I reached the meetup — now what?". It sits on the map
+ * because that is the screen that is open at 100 km/h, and it names the place
+ * rather than the leg number, because "TO DESARU COAST" needs no decoding.
+ */
+function LegChip({
+  leg,
+  target,
+  reached,
+}: {
+  leg: Leg;
+  target: Place;
+  /** True once this member has finished the leg they are on. */
+  reached: boolean;
+}) {
+  const s = useStyles();
+  const c = usePalette();
+  const scheme = useScheme();
+  const name = target.label || (leg === "destination" ? "the destination" : "the meetup");
+  const heading = !(reached && leg === "destination");
+  return (
+    <View
+      style={[s.legChip, elevation(scheme, 1)]}
+      accessible
+      accessibilityLabel={heading ? `Heading to ${name}` : `Arrived at ${name}`}
+    >
+      <Icon
+        name={leg === "destination" ? "destination" : "meetup"}
+        size={12}
+        color={heading ? c.tint : c.green}
+      />
+      <Text style={s.legChipText} numberOfLines={1} maxFontSizeMultiplier={1.3}>
+        {(heading ? `TO ${name}` : `AT ${name}`).toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Replaces the car-ahead readout once you are standing at your leg's target,
+ * where a distance to the car in front is no longer the thing you want to
+ * know. What you want to know is whether the run is over or only half done.
+ */
+function ArrivedReadout({
+  leg,
+  destination,
+  groupHasLeft,
+}: {
+  leg: Leg;
+  destination: Place | null;
+  groupHasLeft: boolean;
+}) {
+  const s = useStyles();
+  if (leg === "destination") {
+    return (
+      <View style={s.arrivedBlock} accessible accessibilityLabel="You have reached the destination">
+        <Text style={s.arrivedEyebrow}>DESTINATION</Text>
+        <Text style={s.arrivedTitle} numberOfLines={2}>
+          You made it
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View
+      style={s.arrivedBlock}
+      accessible
+      accessibilityLabel={
+        destination
+          ? `At the meetup. Next stop ${destination.label || "the destination"}.`
+          : "At the meetup."
+      }
+    >
+      <Text style={s.arrivedEyebrow}>AT THE MEETUP</Text>
+      {destination ? (
+        <>
+          <Text style={s.arrivedTitle} numberOfLines={2}>
+            Next: {destination.label || "the destination"}
+          </Text>
+          <Text style={s.arrivedBody} numberOfLines={2}>
+            {groupHasLeft
+              ? "The group has moved off — catch up."
+              : "Waiting for the group to move off."}
+          </Text>
+        </>
+      ) : (
+        <Text style={s.arrivedBody} numberOfLines={2}>
+          No destination set for this run.
+        </Text>
+      )}
     </View>
   );
 }
@@ -717,6 +862,25 @@ const useStyles = makeStyles((c) => ({
     paddingBottom: spacing.s,
   },
   liveOnMap: { marginLeft: spacing.xs },
+  legChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    maxWidth: 190,
+    paddingHorizontal: spacing.m,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: c.glass,
+    borderWidth: 0.5,
+    borderColor: c.separator,
+  },
+  legChipText: {
+    ...type.eyebrow,
+    fontSize: 10,
+    letterSpacing: 1.2,
+    color: c.label,
+    flexShrink: 1,
+  },
   glassButton: {
     width: 38,
     height: 38,
@@ -757,6 +921,15 @@ const useStyles = makeStyles((c) => ({
   aheadWho: { ...type.footnote, color: c.secondaryLabel, flex: 1, paddingBottom: 4 },
   aheadName: { ...type.footnoteSemi, color: c.label },
   aheadEmpty: { ...type.bodyMedium, color: c.secondaryLabel, flex: 1 },
+
+  arrivedBlock: { gap: 2 },
+  arrivedEyebrow: {
+    ...type.eyebrow,
+    textTransform: "uppercase",
+    color: c.green,
+  },
+  arrivedTitle: { ...type.display2, color: c.label },
+  arrivedBody: { ...type.footnote, color: c.secondaryLabel },
 
   strip: { gap: spacing.s, paddingVertical: 2 },
   chip: {

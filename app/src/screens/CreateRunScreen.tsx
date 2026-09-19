@@ -7,7 +7,12 @@
  * are mono tiles you can read at a glance instead of disclosure rows that
  * hide what you picked.
  */
-import { Camera, Map, Marker } from "@maplibre/maplibre-react-native";
+import {
+  Camera,
+  Map,
+  Marker,
+  type CameraRef,
+} from "@maplibre/maplibre-react-native";
 import DateTimePicker, {
   DateTimePickerAndroid,
 } from "@react-native-community/datetimepicker";
@@ -24,7 +29,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, createRun } from "../api/client";
-import type { LatLng } from "../api/types";
+import type { LatLng, PlaceResult } from "../api/types";
 import { MAP_STYLE_DARK_URL, MAP_STYLE_URL } from "../config";
 import type { ScreenProps } from "../navigation/types";
 import {
@@ -40,6 +45,7 @@ import {
   PlaceMarker,
   type PlaceKind,
 } from "../ui/mapMarkers";
+import { PlaceSearchField } from "../ui/PlaceSearchField";
 import {
   ROW_INSET,
   makeStyles,
@@ -85,6 +91,28 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
   const [busy, setBusy] = useState(false);
   // Set just before we leave on purpose, so the discard guard stands aside.
   const leaving = useRef(false);
+  const cameraRef = useRef<CameraRef>(null);
+  // Where the map is looking, so a search for "caltex" ranks JB above
+  // California. Kept in a ref: it changes on every pan and nothing should
+  // re-render for it.
+  const centre = useRef<LatLng>({ lat: DEFAULT_CENTER[1], lng: DEFAULT_CENTER[0] });
+
+  /** A searched place becomes the pin for whichever mode is selected. */
+  const usePlace = (place: PlaceResult) => {
+    const point: LatLng = { lat: place.lat, lng: place.lng };
+    if (pinMode === "meetup") {
+      setMeetup(point);
+      setMeetupLabel(place.label);
+    } else {
+      setDestination(point);
+      setDestinationLabel(place.label);
+    }
+    cameraRef.current?.flyTo({
+      center: [place.lng, place.lat],
+      zoom: 15,
+      duration: 600,
+    });
+  };
 
   const missing = [
     name.trim().length === 0 ? "a name" : null,
@@ -202,11 +230,24 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
           }}
         />
 
+        <PlaceSearchField
+          label={pinMode === "meetup" ? "Find the meetup" : "Find the destination"}
+          placeholder={
+            pinMode === "meetup" ? "e.g. Caltex Taman Molek" : "e.g. Desaru Coast"
+          }
+          near={() => centre.current}
+          onPick={usePlace}
+        />
+
         <View style={s.mapWrap}>
           <Map
             style={s.map}
             mapStyle={scheme === "night" ? MAP_STYLE_DARK_URL : MAP_STYLE_URL}
             compass={false}
+            onRegionDidChange={(e) => {
+              const [lng, lat] = e.nativeEvent.center;
+              centre.current = { lat, lng };
+            }}
             onPress={(e) => {
               const lngLat = e.nativeEvent.lngLat;
               if (!lngLat) return;
@@ -216,7 +257,10 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
               else setDestination(point);
             }}
           >
-            <Camera initialViewState={{ center: DEFAULT_CENTER, zoom: 9 }} />
+            <Camera
+              ref={cameraRef}
+              initialViewState={{ center: DEFAULT_CENTER, zoom: 9 }}
+            />
             {meetup ? (
               <Marker lngLat={[meetup.lng, meetup.lat]} {...PLACE_MARKER_PROPS}>
                 <PlaceMarker kind="meetup" />

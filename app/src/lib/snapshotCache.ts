@@ -6,10 +6,12 @@
  */
 import type {
   Run,
+  RunPhase,
   RunState,
   ServerMessage,
   SnapshotMessage,
 } from "../api/types";
+import { currentLeg, legCounts, runPhase, type Leg, type LegCounts } from "./leg";
 
 export interface LiveRunState {
   run: Run | null;
@@ -48,6 +50,11 @@ function withRunState(run: Run | null, state: RunState): Run | null {
   return { ...run, state };
 }
 
+function withRunPhase(run: Run | null, phase: RunPhase): Run | null {
+  if (run === null || run.phase === phase) return run;
+  return { ...run, phase };
+}
+
 export function liveRunReducer(
   state: LiveRunState,
   action: LiveRunAction,
@@ -81,7 +88,12 @@ export function liveRunReducer(
             ...state,
             snapshot: message,
             snapshotAt: receivedAt,
-            run: withRunState(state.run, message.runState),
+            run: withRunPhase(
+              withRunState(state.run, message.runState),
+              // A server from before R8 sends no runPhase; treat that as the
+              // one-leg world it came from rather than crashing the board.
+              message.runPhase ?? "gathering",
+            ),
           };
         case "member_arrived": {
           const next: LiveRunState = { ...state };
@@ -107,6 +119,36 @@ export function liveRunReducer(
           }
           return next;
         }
+        case "member_at_destination": {
+          const next: LiveRunState = { ...state };
+          if (state.snapshot) {
+            next.snapshot = {
+              ...state.snapshot,
+              members: state.snapshot.members.map((m) =>
+                m.memberId === message.memberId
+                  ? { ...m, atDestination: true, etaSeconds: null }
+                  : m,
+              ),
+            };
+          }
+          if (state.run) {
+            next.run = {
+              ...state.run,
+              attendees: state.run.attendees.map((a) =>
+                a.memberId === message.memberId ? { ...a, atDestination: true } : a,
+              ),
+            };
+          }
+          return next;
+        }
+        case "run_phase":
+          return {
+            ...state,
+            run: withRunPhase(state.run, message.phase),
+            snapshot: state.snapshot
+              ? { ...state.snapshot, runPhase: message.phase }
+              : null,
+          };
         case "run_state":
           return {
             ...state,
@@ -124,15 +166,23 @@ export function liveRunReducer(
   }
 }
 
-/** Arrival-board counts: "12/18 arrived" (attendees who left are excluded). */
-export function arrivalCounts(run: Run | null): {
-  arrived: number;
-  total: number;
-} {
-  if (!run) return { arrived: 0, total: 0 };
-  const active = run.attendees.filter((a) => a.status !== "left");
-  return {
-    arrived: active.filter((a) => a.status === "arrived").length,
-    total: active.length,
-  };
+/**
+ * Arrival-board counts for the leg the run is actually on: "12/18 at the
+ * meetup" while gathering, "12/18 at Desaru" once the group has left
+ * (attendees who left the run are excluded from both).
+ *
+ * The leg here is the *group's*, not any one member's — this is the headline
+ * tally, and it has to read the same on everybody's phone.
+ */
+export function runLegCounts(run: Run | null): LegCounts & { leg: Leg } {
+  if (!run) return { leg: "meetup", there: 0, total: 0 };
+  const leg: Leg = runPhase(run) === "driving" ? "destination" : "meetup";
+  return { leg, ...legCounts(run.attendees, leg) };
+}
+
+/** The leg *this* member is on, straight from the cached run + snapshot. */
+export function myLeg(state: LiveRunState, selfId: string): Leg {
+  const fromSnapshot = state.snapshot?.members.find((m) => m.memberId === selfId);
+  const fromRun = state.run?.attendees.find((a) => a.memberId === selfId);
+  return currentLeg(state.run, fromSnapshot ?? fromRun ?? null);
 }

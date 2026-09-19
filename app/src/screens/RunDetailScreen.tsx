@@ -19,6 +19,7 @@ import {
   useLayoutEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -45,10 +46,11 @@ import {
 } from "../live/liveSession";
 import { formatEta } from "../lib/eta";
 import { compareEta, formatWhen } from "../lib/format";
+import { currentLeg, isAtLegTarget, type Leg } from "../lib/leg";
 import {
-  arrivalCounts,
   initialLiveRunState,
   liveRunReducer,
+  runLegCounts,
 } from "../lib/snapshotCache";
 import type { ScreenProps } from "../navigation/types";
 import { useSession } from "../session/SessionContext";
@@ -88,7 +90,15 @@ interface BoardRow {
   displayName: string;
   carName: string | null;
   status: AttendeeStatus;
+  atDestination: boolean;
   etaSeconds: number | null;
+}
+
+/** Keep a long place name from pushing a section header off the screen. */
+function shortLabel(label: string, max = 20): string {
+  const trimmed = label.trim();
+  if (trimmed === "") return "the destination";
+  return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max - 1)}…`;
 }
 
 function openBatteryGuide() {
@@ -142,25 +152,41 @@ const permissionHooks: StartHooks = {
     }),
 };
 
-/** Who's in, then who's still coming (soonest first). */
+/**
+ * Who's in, then who's still coming (soonest first) — for whichever leg the
+ * run is on. On the drive, "arrived" means arrived at the *destination*;
+ * saying "at the meetup" while the convoy is on the highway is the lie this
+ * board used to tell.
+ */
 function boardSections(
   rows: BoardRow[],
   state: RunState,
+  leg: Leg,
+  destinationLabel: string,
 ): { key: string; title: string; data: BoardRow[] }[] {
-  const incoming = rows.filter((r) => r.status === "rsvped").sort(compareEta);
-  const arrived = rows.filter((r) => r.status === "arrived");
+  const isThere = (r: BoardRow) =>
+    leg === "destination" ? r.atDestination : r.status === "arrived";
+  const arrived = rows.filter(isThere);
+  const incoming = rows.filter((r) => !isThere(r)).sort(compareEta);
+  const there = leg === "destination" ? shortLabel(destinationLabel) : "the meetup";
   const sections =
     state === "upcoming"
       ? [{ key: "going", title: "Going", data: [...incoming, ...arrived] }]
       : [
           {
             key: "arrived",
-            title: state === "ended" ? "Checked in" : "At the meetup",
+            title:
+              state === "ended"
+                ? leg === "destination"
+                  ? "Made it"
+                  : "Checked in"
+                : `At ${there}`,
             data: arrived,
           },
           {
             key: "incoming",
-            title: state === "ended" ? "Didn't check in" : "On the way",
+            title:
+              state === "ended" ? "Didn't check in" : `On the way to ${there}`,
             data: incoming,
           },
         ];
@@ -311,6 +337,7 @@ export default function RunDetailScreen({
         displayName: m.displayName,
         carName: m.carName,
         status: m.status,
+        atDestination: m.atDestination === true,
         etaSeconds: m.etaSeconds,
       }));
     }
@@ -321,11 +348,36 @@ export default function RunDetailScreen({
         displayName: a.displayName,
         carName: a.carName,
         status: a.status,
+        atDestination: a.atDestination === true,
         etaSeconds: null,
       }));
   }, [state.snapshot, run]);
 
-  const counts = arrivalCounts(run);
+  const counts = runLegCounts(run);
+  const myRow = rows.find((r) => r.memberId === selfId) ?? null;
+  // My leg, not the group's: a straggler still driving to the meetup is on
+  // leg 1 however far ahead the rest of the convoy is.
+  const atMyTarget = isAtLegTarget(run, myRow);
+
+  /**
+   * Arriving is a moment, and it has to be felt rather than read: the phone is
+   * in a cradle running Waze, or face down on the passenger seat. One buzz the
+   * instant a leg completes; the banner below carries the detail when they do
+   * look down.
+   *
+   * (A buzz is as far as this goes while the app is backgrounded — a real
+   * heads-up notification would need expo-notifications, which this build does
+   * not carry.)
+   */
+  const wasAtTarget = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!run || run.state !== "active") return;
+    const previously = wasAtTarget.current;
+    wasAtTarget.current = atMyTarget;
+    // null is the first look: they may have arrived long before this screen
+    // opened, and buzzing for old news is worse than not buzzing at all.
+    if (previously === false && atMyTarget) haptic.success();
+  }, [run, atMyTarget]);
 
   const openCarPicker = () =>
     navigation.navigate("CarPicker", {
@@ -423,7 +475,13 @@ export default function RunDetailScreen({
   }
 
   const active = run.state === "active";
-  const sections = boardSections(rows, run.state);
+  const myLeg = currentLeg(run, myRow);
+  const sections = boardSections(
+    rows,
+    run.state,
+    counts.leg,
+    run.destination?.label ?? "",
+  );
 
   let primary: ReactNode = null;
   if (run.state === "ended") {
@@ -449,6 +507,12 @@ export default function RunDetailScreen({
   } else if (active) {
     primary = (
       <View style={s.primary}>
+        <LegBanner
+          run={run}
+          leg={myLeg}
+          atTarget={atMyTarget}
+          groupHasLeft={counts.leg === "destination"}
+        />
         <Button
           title="Open live map"
           icon="map"
@@ -526,13 +590,29 @@ export default function RunDetailScreen({
       </View>
 
       <Card style={s.route}>
-        <PlaceLeg kind="meetup" place={run.meetup} />
+        <PlaceLeg
+          kind="meetup"
+          place={run.meetup}
+          state={
+            !active || !run.destination
+              ? "idle"
+              : myLeg === "meetup"
+                ? "current"
+                : "done"
+          }
+        />
         {run.destination ? (
           <>
             <View style={s.legConnector}>
               <View style={s.legLine} />
             </View>
-            <PlaceLeg kind="destination" place={run.destination} />
+            <PlaceLeg
+              kind="destination"
+              place={run.destination}
+              state={
+                !active ? "idle" : myLeg === "destination" ? "current" : "idle"
+              }
+            />
           </>
         ) : null}
       </Card>
@@ -542,19 +622,27 @@ export default function RunDetailScreen({
           style={s.tally}
           accessible
           accessibilityRole="summary"
-          accessibilityLabel={`${counts.arrived} of ${counts.total} ${
-            run.state === "ended" ? "checked in" : "arrived"
+          accessibilityLabel={`${counts.there} of ${counts.total} ${
+            counts.leg === "destination"
+              ? `at ${run.destination?.label || "the destination"}`
+              : run.state === "ended"
+                ? "checked in"
+                : "arrived at the meetup"
           }`}
         >
           <Text style={s.tallyNumber} allowFontScaling={false}>
-            {counts.arrived}
+            {counts.there}
             <Text style={s.tallyOf}>/{counts.total}</Text>
           </Text>
           <View style={s.tallyRight}>
-            <Text style={s.tallyLabel}>
-              {run.state === "ended" ? "Checked in" : "Arrived"}
+            <Text style={s.tallyLabel} numberOfLines={1}>
+              {counts.leg === "destination"
+                ? `At ${shortLabel(run.destination?.label ?? "", 16)}`
+                : run.state === "ended"
+                  ? "Checked in"
+                  : "Arrived"}
             </Text>
-            <ArrivalDots arrived={counts.arrived} total={counts.total} />
+            <ArrivalDots arrived={counts.there} total={counts.total} />
           </View>
         </View>
       ) : null}
@@ -616,6 +704,7 @@ export default function RunDetailScreen({
           row={item}
           isSelf={item.memberId === selfId}
           runState={run.state}
+          leg={counts.leg}
           first={index === 0}
           last={index === section.data.length - 1}
         />
@@ -655,16 +744,39 @@ export default function RunDetailScreen({
   );
 }
 
-function PlaceLeg({ kind, place }: { kind: PlaceKind; place: Place }) {
+/**
+ * One leg of the route.
+ *
+ * `state` is this member's progress, so the card answers "where am I supposed
+ * to be heading right now" without reading anything else on the screen:
+ * `current` is the leg they are driving, `done` one they have finished.
+ */
+function PlaceLeg({
+  kind,
+  place,
+  state = "idle",
+}: {
+  kind: PlaceKind;
+  place: Place;
+  state?: "idle" | "current" | "done";
+}) {
   const s = useStyles();
   const meetup = kind === "meetup";
+  const note = state === "current" ? "HEADING HERE" : state === "done" ? "DONE" : null;
   return (
     <View style={s.leg}>
       <View style={s.legMarker}>
         <View style={meetup ? s.legDotMeetup : s.legDotDestination} />
       </View>
       <View style={s.legText}>
-        <Text style={s.legKind}>{PLACE_LABEL[kind].toUpperCase()}</Text>
+        <Text style={s.legKind} numberOfLines={1}>
+          {PLACE_LABEL[kind].toUpperCase()}
+          {note ? (
+            <Text style={state === "current" ? s.legNow : s.legDone}>
+              {`   ${note}`}
+            </Text>
+          ) : null}
+        </Text>
         <Text style={s.legLabel} numberOfLines={2}>
           {place.label}
         </Text>
@@ -673,6 +785,96 @@ function PlaceLeg({ kind, place }: { kind: PlaceKind; place: Place }) {
         lat={place.lat}
         lng={place.lng}
         place={`the ${PLACE_LABEL[kind].toLowerCase()}`}
+        role={state === "current" ? "filled" : "tinted"}
+      />
+    </View>
+  );
+}
+
+/**
+ * The arrival moment, and the answer to "what now?".
+ *
+ * Reaching the meetup used to be a row quietly changing section on a screen
+ * nobody is looking at — you are in Waze, or the phone is face down on the
+ * passenger seat. This says where you are, and where the run goes next.
+ */
+function LegBanner({
+  run,
+  leg,
+  atTarget,
+  groupHasLeft,
+}: {
+  run: Run;
+  leg: Leg;
+  atTarget: boolean;
+  /** The group as a whole has moved off, whatever this member is doing. */
+  groupHasLeft: boolean;
+}) {
+  const s = useStyles();
+  const destination = run.destination;
+
+  if (leg === "destination") {
+    return atTarget ? (
+      <InlineBanner
+        icon="destination"
+        tone="success"
+        title={`You've reached ${destination?.label ?? "the destination"}`}
+        body="Sharing stops when the run ends."
+      />
+    ) : (
+      <View style={s.legBanner}>
+        <InlineBanner
+          icon="destination"
+          tone="neutral"
+          title={`Heading to ${destination?.label ?? "the destination"}`}
+          body="The group has left the meetup. This is leg 2."
+        />
+        {destination ? (
+          <WazeButton
+            lat={destination.lat}
+            lng={destination.lng}
+            place="the destination"
+            label={`Waze to ${shortLabel(destination.label, 24)}`}
+            role="tinted"
+            size="regular"
+          />
+        ) : null}
+      </View>
+    );
+  }
+
+  if (!atTarget) return null; // still driving to the meetup: the map says it better
+
+  // At the meetup. What happens next depends on whether there *is* a next.
+  if (!destination) {
+    return (
+      <InlineBanner
+        icon="arrived"
+        tone="success"
+        title="You're at the meetup"
+        body="No destination set for this run."
+      />
+    );
+  }
+  return (
+    <View style={s.legBanner}>
+      <InlineBanner
+        icon="arrived"
+        tone="success"
+        title="You're at the meetup"
+        body={
+          groupHasLeft
+            ? `The group has moved off towards ${shortLabel(destination.label, 24)}.`
+            : `Next: ${shortLabel(destination.label, 24)}. Everything switches over once the group moves off.`
+        }
+      />
+      <WazeButton
+        lat={destination.lat}
+        lng={destination.lng}
+        place="the destination"
+        label={`Waze to ${shortLabel(destination.label, 24)}`}
+        role="tinted"
+        size="regular"
       />
     </View>
   );
@@ -682,25 +884,33 @@ function RollCallRow({
   row,
   isSelf,
   runState,
+  leg,
   first,
   last,
 }: {
   row: BoardRow;
   isSelf: boolean;
   runState: RunState;
+  /** The leg the board is reporting on — decides what "arrived" means here. */
+  leg: Leg;
   first: boolean;
   last: boolean;
 }) {
   const s = useStyles();
   const c = usePalette();
-  const arrived = row.status === "arrived";
+  const arrived = leg === "destination" ? row.atDestination : row.status === "arrived";
 
   // Three redundant signals carry "arrived": the filled avatar, the tick, and
   // the green edge. Never colour alone.
   let status: ReactNode = null;
   let spoken = "";
   if (arrived && runState !== "upcoming") {
-    const label = runState === "ended" ? "Checked in" : "Arrived";
+    const label =
+      runState === "ended"
+        ? leg === "destination"
+          ? "Made it"
+          : "Checked in"
+        : "Arrived";
     status = (
       <View style={s.statusRow}>
         <Icon name="arrived" size={15} color={runState === "ended" ? c.secondaryLabel : c.green} />
@@ -790,7 +1000,10 @@ const useStyles = makeStyles((c) => ({
   },
   legText: { flex: 1, gap: 1 },
   legKind: { ...type.eyebrow, fontSize: 10, letterSpacing: 1.6, color: c.tertiaryLabel },
+  legNow: { ...type.eyebrow, fontSize: 10, letterSpacing: 1.6, color: c.tint },
+  legDone: { ...type.eyebrow, fontSize: 10, letterSpacing: 1.6, color: c.green },
   legLabel: { ...type.bodySemi, color: c.label },
+  legBanner: { gap: spacing.s },
 
   tally: {
     flexDirection: "row",

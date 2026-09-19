@@ -43,6 +43,15 @@ export const STATIONARY_DISPLACEMENT_M = 15;
 /** A member dot is stale when its last position is older than this. */
 export const STALENESS_THRESHOLD_MS = 60_000;
 
+/**
+ * Place search (R9). The debounce is not cosmetic: the geocoder behind our
+ * server is a free OSM service used under a policy that forbids a request per
+ * keystroke, and the minimum length keeps "ca" from ever leaving the phone.
+ */
+export const PLACE_SEARCH_DEBOUNCE_MS = 400;
+export const PLACE_SEARCH_MIN_CHARS = 3;
+export const PLACE_SEARCH_LIMIT = 6;
+
 /** Minimum interval between client-computed `eta` messages. */
 export const ETA_SEND_INTERVAL_MS = 15_000;
 

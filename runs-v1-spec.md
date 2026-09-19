@@ -84,6 +84,20 @@ A 50+ person car friend group coordinates meets and drives entirely through a Wh
 
 ### P1 — Nice to have (fast follow)
 
+- [x] **R8. Destination leg** — the run is two legs, not one. Once the group
+  leaves the meetup the app must say so and retarget: run phase
+  (gathering → driving, server-derived, no leader button), destination
+  geofence + per-member "reached the destination", ETA and Waze handoff and
+  the "car ahead" bearing all following the member's *current* leg, and an
+  arrival moment (haptic + banner) at both ends. Added 19 Sep 2026 after the
+  first Android road test: the app announced "arrived" at the meetup and then
+  went silent about the destination, and the board kept claiming everyone was
+  "at the meetup" while the convoy was on the highway.
+- [x] **R9. Place search when picking pins** — text search on the create-run
+  map, so a meetup is "Caltex Taman Molek", not a pin hunt at zoom 9. Runs
+  through our own server (`GET /api/v1/places/search`), never from the phone
+  to a public geocoder: see docs/CONTRACT.md for why. Free OSM geocoder
+  (Photon by default), swappable by env var without a new APK.
 - [ ] Regroup pin: any member drops a pin, everyone gets a push + one-tap Waze link
 - [ ] Fall-behind alert: notify run participants when a member drops more than X km behind the group
 - [ ] Post-run recap: route line replay (positions only), distance, duration — no speed
@@ -135,6 +149,7 @@ the group-release gate above.)
 | Sideload friction ("install unknown apps") | Onboarding message + screenshots for the group chat; keep APK link stable |
 | Battery drain complaints | Adaptive update frequency (slower when stationary); measure in M0, set budget |
 | AI-agent scope creep | This spec is the contract; anything outside P0/P1 requires editing this document first |
+| Free geocoder throttles or disappears mid-beta | Search is proxied through our own server, so the upstream is one env var; self-hosted Photon on the homelab is the fallback |
 
 ## Open Questions
 

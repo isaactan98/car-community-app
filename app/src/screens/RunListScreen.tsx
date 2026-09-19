@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { listRuns } from "../api/client";
 import type { Run, RunState } from "../api/types";
 import { formatShortDate, formatWhen } from "../lib/format";
-import { arrivalCounts } from "../lib/snapshotCache";
+import { runLegCounts } from "../lib/snapshotCache";
 import type { ScreenProps } from "../navigation/types";
 import { useSession } from "../session/SessionContext";
 import { cacheRunList, loadCachedRunList } from "../storage/storage";
@@ -249,7 +249,9 @@ function HeroRunCard({
   onMap: () => void;
 }) {
   const s = useStyles();
-  const { arrived, total } = arrivalCounts(run);
+  // Leg-aware: once the convoy has left the meetup this card counts who has
+  // reached the destination, not who once stood at the petrol station.
+  const { leg, there, total } = runLegCounts(run);
   const people = crew(run);
   const names = people.map((a) => a.displayName);
   const selfIndex = people.findIndex((a) => a.memberId === selfId);
@@ -259,7 +261,9 @@ function HeroRunCard({
       <Pressable
         onPress={onOpen}
         accessibilityRole="button"
-        accessibilityLabel={`${run.name}, live now, ${arrived} of ${total} arrived`}
+        accessibilityLabel={`${run.name}, live now, ${there} of ${total} ${
+          leg === "destination" ? "at the destination" : "arrived"
+        }`}
         accessibilityHint="Opens the run"
         style={s.heroBody}
       >
@@ -277,12 +281,14 @@ function HeroRunCard({
 
         <View style={s.heroCount}>
           <Text style={s.heroTally}>
-            {arrived}
+            {there}
             <Text style={s.heroTallyOf}>/{total}</Text>
           </Text>
-          <Text style={s.heroArrived}>arrived</Text>
+          <Text style={s.heroArrived} numberOfLines={1}>
+            {leg === "destination" ? "at destination" : "arrived"}
+          </Text>
           <View style={s.heroDots}>
-            <ArrivalDots arrived={arrived} total={total} />
+            <ArrivalDots arrived={there} total={total} />
           </View>
         </View>
 

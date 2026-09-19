@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { Run, SnapshotMessage } from "../../api/types";
 import {
-  arrivalCounts,
   initialLiveRunState,
   liveRunReducer,
+  runLegCounts,
   type LiveRunState,
 } from "../snapshotCache";
 
@@ -16,23 +16,26 @@ const run: Run = {
   destination: null,
   startsAt: "2026-07-19T08:00:00.000Z",
   state: "active",
+  phase: "gathering",
   inviteDeepLink: "runs://join?code=abc",
   attendees: [
-    { memberId: "m1", displayName: "Isaac", carName: "MX-5", status: "arrived" },
-    { memberId: "m2", displayName: "Ben", carName: null, status: "rsvped" },
-    { memberId: "m3", displayName: "Gone", carName: null, status: "left" },
+    { memberId: "m1", displayName: "Isaac", carName: "MX-5", status: "arrived", atDestination: false },
+    { memberId: "m2", displayName: "Ben", carName: null, status: "rsvped", atDestination: false },
+    { memberId: "m3", displayName: "Gone", carName: null, status: "left", atDestination: false },
   ],
 };
 
 const snapshot: SnapshotMessage = {
   type: "snapshot",
   runState: "active",
+  runPhase: "gathering",
   members: [
     {
       memberId: "m1",
       displayName: "Isaac",
       carName: "MX-5",
       status: "arrived",
+      atDestination: false,
       lastPosition: { lat: 1.4, lng: 103.7, ts: 1000 },
       etaSeconds: null,
     },
@@ -41,10 +44,17 @@ const snapshot: SnapshotMessage = {
       displayName: "Ben",
       carName: null,
       status: "rsvped",
+      atDestination: false,
       lastPosition: { lat: 1.39, lng: 103.69, ts: 900 },
       etaSeconds: 600,
     },
   ],
+};
+
+/** The same run, but with somewhere to go after the meetup. */
+const twoLegRun: Run = {
+  ...run,
+  destination: { lat: 1.5, lng: 103.9, label: "Desaru Coast" },
 };
 
 function loaded(): LiveRunState {
@@ -155,11 +165,86 @@ describe("liveRunReducer", () => {
   });
 });
 
-describe("arrivalCounts", () => {
-  it('counts "12/18"-style totals, excluding members who left', () => {
-    expect(arrivalCounts(run)).toEqual({ arrived: 1, total: 2 });
+describe("runLegCounts", () => {
+  it('counts "12/18"-style totals for the meetup, excluding members who left', () => {
+    expect(runLegCounts(run)).toEqual({ leg: "meetup", there: 1, total: 2 });
   });
+
+  it("counts arrivals at the destination once the group has driven off", () => {
+    const driving: Run = {
+      ...twoLegRun,
+      phase: "driving",
+      attendees: twoLegRun.attendees.map((a) =>
+        a.memberId === "m2" ? { ...a, status: "arrived" as const, atDestination: true } : a,
+      ),
+    };
+    // m1 checked in at the meetup but has not reached the destination; m2 has.
+    expect(runLegCounts(driving)).toEqual({ leg: "destination", there: 1, total: 2 });
+  });
+
+  it("ignores a driving phase on a run with nowhere to drive to", () => {
+    expect(runLegCounts({ ...run, phase: "driving" })).toEqual({
+      leg: "meetup",
+      there: 1,
+      total: 2,
+    });
+  });
+
   it("zero for null run", () => {
-    expect(arrivalCounts(null)).toEqual({ arrived: 0, total: 0 });
+    expect(runLegCounts(null)).toEqual({ leg: "meetup", there: 0, total: 0 });
+  });
+});
+
+describe("liveRunReducer — the destination leg (R8)", () => {
+  function twoLegState(): LiveRunState {
+    let s = liveRunReducer(initialLiveRunState, {
+      type: "run_loaded",
+      run: twoLegRun,
+      fromCache: false,
+    });
+    s = liveRunReducer(s, { type: "ws_message", message: snapshot, receivedAt: 5000 });
+    return s;
+  }
+
+  it("run_phase moves both the run and the live snapshot onto the second leg", () => {
+    const s = liveRunReducer(twoLegState(), {
+      type: "ws_message",
+      message: { type: "run_phase", phase: "driving" },
+      receivedAt: 6000,
+    });
+    expect(s.run?.phase).toBe("driving");
+    expect(s.snapshot?.runPhase).toBe("driving");
+  });
+
+  it("member_at_destination marks the member and clears their ETA", () => {
+    const s = liveRunReducer(twoLegState(), {
+      type: "ws_message",
+      message: { type: "member_at_destination", memberId: "m2" },
+      receivedAt: 6000,
+    });
+    const member = s.snapshot?.members.find((m) => m.memberId === "m2");
+    expect(member).toMatchObject({ atDestination: true, etaSeconds: null });
+    expect(s.run?.attendees.find((a) => a.memberId === "m2")?.atDestination).toBe(true);
+    // Nobody else is touched.
+    expect(s.snapshot?.members.find((m) => m.memberId === "m1")?.atDestination).toBe(false);
+  });
+
+  it("a snapshot carries the phase across to the run object", () => {
+    const s = liveRunReducer(twoLegState(), {
+      type: "ws_message",
+      message: { ...snapshot, runPhase: "driving" },
+      receivedAt: 7000,
+    });
+    expect(s.run?.phase).toBe("driving");
+  });
+
+  it("treats a snapshot from a server that predates R8 as gathering", () => {
+    const { runPhase: _dropped, ...old } = snapshot;
+    const s = liveRunReducer(twoLegState(), {
+      type: "ws_message",
+      message: old as SnapshotMessage,
+      receivedAt: 7000,
+    });
+    expect(s.run?.phase).toBe("gathering");
   });
 });

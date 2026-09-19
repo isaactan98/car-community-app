@@ -21,8 +21,10 @@ import { AppState, Linking } from "react-native";
 
 import type {
   ClientMessage,
+  LatLng,
   Position,
   Run,
+  RunPhase,
   ServerMessage,
   SnapshotMessage,
 } from "../api/types";
@@ -35,6 +37,7 @@ import {
 } from "../config";
 import { shouldSendPosition } from "../lib/cadence";
 import { estimateEtaSeconds } from "../lib/eta";
+import { currentLeg } from "../lib/leg";
 import { cacheSnapshot } from "../storage/storage";
 
 export const LOCATION_TASK = "runs-live-location";
@@ -50,7 +53,11 @@ interface SessionState {
   runId: string;
   token: string;
   selfId: string;
-  meetup: { lat: number; lng: number };
+  meetup: LatLng;
+  /** Null for a one-leg run: there is nowhere to go after the meetup. */
+  destination: LatLng | null;
+  /** The group's leg, tracked from `run_phase` and every snapshot. */
+  phase: RunPhase;
   socket: WebSocket | null;
   connected: boolean;
   reconnectAttempt: number;
@@ -61,8 +68,10 @@ interface SessionState {
   /** Recent fixes for client-side ETA estimation. lat/lng/ts only. */
   recent: Position[];
   lastEtaSentAt: number;
-  /** Own arrival status — stop sending `eta` once arrived. */
+  /** Checked in at the meetup. */
   arrived: boolean;
+  /** Reached the destination — the run is over for this member's ETA. */
+  atDestination: boolean;
   /** Foreground-only fallback watcher when background permission denied. */
   fgWatcher: Location.LocationSubscription | null;
   usingBackgroundTask: boolean;
@@ -231,6 +240,17 @@ function openSocket(s: SessionState) {
       message.memberId === s.selfId
     ) {
       s.arrived = true;
+      // The meetup ETA is spent; the next one is to the destination, and only
+      // once the group has actually left (see etaTarget).
+      s.lastEtaSentAt = 0;
+    } else if (
+      message.type === "member_at_destination" &&
+      message.memberId === s.selfId
+    ) {
+      s.atDestination = true;
+    } else if (message.type === "run_phase") {
+      s.phase = message.phase;
+      s.lastEtaSentAt = 0; // new leg, new target: do not wait out the interval
     } else if (message.type === "run_state" && message.state === "ended") {
       // Hard privacy stop: run over → stop sharing immediately (R7).
       emit({ kind: "message", message, receivedAt });
@@ -372,8 +392,14 @@ function handleSnapshot(
   snapshot: SnapshotMessage,
   receivedAt: number,
 ) {
+  // Snapshots are the authority, and the only signal a client that missed a
+  // one-shot `member_arrived` / `run_phase` frame ever gets.
+  if (snapshot.runPhase === "driving" || snapshot.runPhase === "gathering") {
+    s.phase = snapshot.runPhase;
+  }
   const self = snapshot.members.find((m) => m.memberId === s.selfId);
   if (self?.status === "arrived") s.arrived = true;
+  if (self?.atDestination) s.atDestination = true;
   // Persist for degraded mode (R6); throttled to every 10 s.
   if (receivedAt - s.lastSnapshotCacheAt >= 10_000) {
     s.lastSnapshotCacheAt = receivedAt;
@@ -417,16 +443,38 @@ function handleFixes(fixes: Location.LocationObject[]) {
     }
   }
 
-  // Client-computed ETA to the meetup, pre-arrival only (contract `eta`).
+  // Client-computed ETA to whichever leg target is ours right now (contract
+  // `eta`). Null means there is nothing worth estimating — we are at the
+  // meetup and the group has not moved, or we are already at the destination —
+  // and the server would drop the message anyway.
+  const target = etaTarget(s);
   const now = Date.now();
-  if (!s.arrived && now - s.lastEtaSentAt >= ETA_SEND_INTERVAL_MS) {
-    const etaSeconds = estimateEtaSeconds(s.recent, s.meetup);
+  if (target && now - s.lastEtaSentAt >= ETA_SEND_INTERVAL_MS) {
+    const etaSeconds = estimateEtaSeconds(s.recent, target);
     if (etaSeconds !== null) {
       if (sendMessage(s, { type: "eta", etaSeconds })) {
         s.lastEtaSentAt = now;
       }
     }
   }
+}
+
+/**
+ * Where my ETA points, or null when an ETA would be meaningless.
+ *
+ * Mirrors the server's own rule (docs/CONTRACT.md) so we never burn a socket
+ * frame on a message it will silently drop: the meetup until I check in, the
+ * destination once the group has left it, and nothing at all in between or
+ * after I arrive.
+ */
+function etaTarget(s: SessionState): LatLng | null {
+  if (s.atDestination) return null;
+  const leg = currentLeg(
+    { phase: s.phase, destination: s.destination ? { ...s.destination, label: "" } : null },
+    { status: s.arrived ? "arrived" : "rsvped", atDestination: s.atDestination },
+  );
+  if (leg === "destination") return s.destination;
+  return s.arrived ? null : s.meetup;
 }
 
 // Registered at module load (this module is imported from App.tsx) so the
@@ -576,6 +624,10 @@ async function beginSession(
     token,
     selfId,
     meetup: { lat: run.meetup.lat, lng: run.meetup.lng },
+    destination: run.destination
+      ? { lat: run.destination.lat, lng: run.destination.lng }
+      : null,
+    phase: run.destination && run.phase === "driving" ? "driving" : "gathering",
     socket: null,
     connected: false,
     reconnectAttempt: 0,
@@ -586,6 +638,9 @@ async function beginSession(
     lastEtaSentAt: 0,
     arrived: run.attendees.some(
       (a) => a.memberId === selfId && a.status === "arrived",
+    ),
+    atDestination: run.attendees.some(
+      (a) => a.memberId === selfId && a.atDestination === true,
     ),
     fgWatcher: null,
     usingBackgroundTask: false,
