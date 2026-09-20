@@ -4,6 +4,7 @@
  * quickly when the homelab is down.
  */
 import { API_BASE, REQUEST_TIMEOUT_MS } from "../config";
+import { parseRunRoute, type RunRoute } from "../lib/routeLine";
 import type { Car, JoinResponse, LatLng, Me, Place, PlaceResult, Run } from "./types";
 
 export class ApiError extends Error {
@@ -163,6 +164,27 @@ export function endRun(runId: string): Promise<unknown> {
   return request<unknown>(`/runs/${encodeURIComponent(runId)}/end`, {
     method: "POST",
   });
+}
+
+/**
+ * The road between this run's meetup and its destination, for the line on the
+ * live map.
+ *
+ * Resolves to null for every "no line" case there is — the run has no
+ * destination, the server has no router configured, the router did not answer,
+ * or this build is talking to a server old enough not to have the endpoint at
+ * all. The map's answer to all of them is the same: draw the direct line and
+ * label it honestly. Only a genuinely unreachable *server* throws, and that is
+ * already degraded mode's problem.
+ */
+export async function getRunRoute(runId: string): Promise<RunRoute | null> {
+  try {
+    const body = await request<unknown>(`/runs/${encodeURIComponent(runId)}/route`);
+    return parseRunRoute(body);
+  } catch (err) {
+    if (err instanceof ApiError && !err.network) return null;
+    throw err;
+  }
 }
 
 // ---- Place search (R9) ----

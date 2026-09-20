@@ -134,6 +134,56 @@ data: the client must show "© OpenStreetMap contributors" wherever it shows the
 **Never** send a request per keystroke. The client debounces (400 ms) and the
 server caches; both are part of staying inside upstream usage policy.
 
+## Run route (the line on the live map)
+
+`GET /api/v1/runs/:id/route`
+
+Authenticated like every other route. The road from this run's `meetup` to its
+`destination`, for the line the live map draws between the two pins.
+
+Response 200:
+```json
+{ "route": { "points": [ { "lat": 0, "lng": 0 } ], "distanceMeters": 0 } | null }
+```
+
+`points` is the road geometry, `meetup` first and `destination` last, at least
+two entries. `distanceMeters` is the length of the **road** route, not of the
+straight line between the pins.
+
+`route` is `null` in every case where there is no road answer — the run has no
+`destination`, the server has no router configured, the router was unreachable,
+or it had no route between those two points. The client cannot and need not
+tell them apart: all four mean *draw the direct line and label it as one*. The
+endpoint is 200 in all of them, because a missing line is a degraded map (R6),
+not a failed request.
+
+Errors: 404 unknown run, 401 unauthenticated.
+
+**There is deliberately no per-member route.** Routing each phone to its own
+target would be one upstream call per member per position update — the exact
+pattern free routers' usage policies exist to forbid — and it duplicates the
+Waze handoff (R5), which is what the group actually navigates with. Turn-by-turn
+stays Waze's job.
+
+This endpoint is cheap for the same structural reason: a run's `meetup` and
+`destination` are fixed at creation (there is no run-edit endpoint), so the
+answer never changes. A whole group on a whole run costs **one** upstream call,
+held by a long server-side cache, coalesced across the burst of phones that open
+the live map at the same moment, and cached again on each phone so degraded mode
+keeps the real road.
+
+Upstream is configured by `ROUTER_URL`, OSRM-shaped
+(`{base}/{lng},{lat};{lng},{lat}`, default: the public FOSSGIS OSRM demo
+server), with `ROUTER_USER_AGENT` identifying this deployment. Set `ROUTER_URL`
+to `''` to turn road routes off entirely. Results are OpenStreetMap data: the
+same "© OpenStreetMap contributors" attribution the map already carries covers
+them.
+
+**No duration crosses this boundary.** OSRM returns one; the server drops it and
+never forwards it. Distance divided by duration is a speed, and Hard Constraint
+1 says no speed value exists anywhere in this system. The app's ETA is computed
+on the phone from the member's own samples and stays that way.
+
 ## WebSocket messages
 
 All messages: `{ "type": string, ...payload }`. Server disconnects the socket when

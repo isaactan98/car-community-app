@@ -22,6 +22,9 @@ export async function startTestServer(overrides: Partial<Config> = {}): Promise<
     snapshotIntervalMs: 150,
     // Sweeps are driven manually in tests (service.sweepAutoEnd / sweepRetention).
     sweepIntervalMs: 3_600_000,
+    // No test may reach a public router. Route tests drive RouteLookup with a
+    // stubbed fetch directly; anything going through the server gets no line.
+    routerUrl: '',
     ...overrides,
   });
   const port = await runs.listen(0);

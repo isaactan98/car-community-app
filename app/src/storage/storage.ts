@@ -5,6 +5,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import type { RunRoute } from "../lib/routeLine";
 import type { Member, Run, SnapshotMessage } from "../api/types";
 
 const KEY_TOKEN = "runs.token";
@@ -12,6 +13,7 @@ const KEY_MEMBER = "runs.member";
 const KEY_RUN_LIST = "runs.cache.runList";
 const keyRun = (runId: string) => `runs.cache.run.${runId}`;
 const keySnapshot = (runId: string) => `runs.cache.snapshot.${runId}`;
+const keyRoute = (runId: string) => `runs.cache.route.${runId}`;
 
 async function readJson<T>(key: string): Promise<T | null> {
   try {
@@ -94,4 +96,18 @@ export async function loadCachedSnapshot(
   runId: string,
 ): Promise<CachedSnapshot | null> {
   return readJson<CachedSnapshot>(keySnapshot(runId));
+}
+
+/**
+ * The run's road route. Worth caching precisely because it cannot change: a
+ * run's pins are fixed at creation, so a route fetched once at the meetup is
+ * still correct in a tunnel two hours later with the server unreachable — the
+ * one piece of map furniture degraded mode can keep perfectly.
+ */
+export async function cacheRoute(runId: string, route: RunRoute) {
+  await writeJson(keyRoute(runId), route);
+}
+
+export async function loadCachedRoute(runId: string): Promise<RunRoute | null> {
+  return readJson<RunRoute>(keyRoute(runId));
 }

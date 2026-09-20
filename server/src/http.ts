@@ -1,6 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { HttpError, type Service } from './service.js';
 import type { PlaceSearch } from './places.js';
+import type { RouteLookup } from './route.js';
 import { log } from './logger.js';
 
 declare module 'express-serve-static-core' {
@@ -50,6 +51,7 @@ const WS_DIAG_PAGE = `<!doctype html>
 export function createHttpApp(
   service: Service,
   places: PlaceSearch,
+  routes: RouteLookup,
   enableWsDiag = false,
 ): express.Express {
   const app = express();
@@ -196,6 +198,33 @@ export function createHttpApp(
 
   api.post('/runs/:id/end', (req, res) => {
     res.json(service.endRun(req.params.id, req.member!.id));
+  });
+
+  /**
+   * The road between this run's meetup and its destination, for the line on
+   * the live map. `service.getRun` first so an unknown run is a 404 and only
+   * an authenticated member can spend an upstream call.
+   *
+   * Always 200. `{ route: null }` covers all three no-line cases — the run has
+   * no destination, the router is off, or the router did not answer — because
+   * the map's response to each is identical: draw the straight line instead.
+   */
+  api.get('/runs/:id/route', (req, res, next) => {
+    let run;
+    try {
+      run = service.getRun(req.params.id);
+    } catch (err) {
+      next(err);
+      return;
+    }
+    if (!run.destination) {
+      res.json({ route: null });
+      return;
+    }
+    routes
+      .between(run.meetup, run.destination)
+      .then((route) => res.json({ route }))
+      .catch(next);
   });
 
   // ----- place search (R9) -----
