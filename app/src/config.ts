@@ -15,8 +15,11 @@
  * Note: `localhost` on a physical device/emulator means the device itself,
  * not your dev machine — use a reachable IP/hostname there.
  */
-export const SERVER_URL =
-  process.env.EXPO_PUBLIC_SERVER_URL ?? "http://localhost:4000";
+import { normalizeServerUrl } from "./lib/serverUrl";
+
+export const SERVER_URL = normalizeServerUrl(
+  process.env.EXPO_PUBLIC_SERVER_URL ?? "http://localhost:4000",
+);
 
 /** REST base path, per docs/CONTRACT.md. */
 export const API_BASE = `${SERVER_URL}/api/v1`;
