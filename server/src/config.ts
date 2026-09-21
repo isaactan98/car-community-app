@@ -44,6 +44,32 @@ export interface Config {
   /** Max upstream-hitting searches per member per minute. */
   geocoderRatePerMinute: number;
   /**
+   * Upstream road router for the live map's route line, OSRM-shaped
+   * (`{base}/{lng},{lat};{lng},{lat}?geometries=geojson`). Behind our own
+   * endpoint for the same reason as the geocoder: repointable at a self-hosted
+   * OSRM without shipping 50 people a new APK. Set to '' to turn the road
+   * route off entirely — the app then draws a straight line and says so.
+   */
+  routerUrl: string;
+  /** Sent as `User-Agent` upstream; free routers' policies require a real one. */
+  routerUserAgent: string;
+  /** Give up on the upstream router after this long. */
+  routerTimeoutMs: number;
+  /**
+   * How long a fetched route stays cached. Deliberately long: a run's meetup
+   * and destination cannot be edited, so the road between them is the same
+   * answer forever and the whole group costs one upstream call.
+   */
+  routerCacheTtlMs: number;
+  /**
+   * How long a *failed* lookup is remembered. Short — the point is only to
+   * stop every phone opening the live map from re-asking a router that is
+   * down, not to keep a run line-less once it recovers.
+   */
+  routerFailureTtlMs: number;
+  /** Cached routes, evicted oldest-first. */
+  routerCacheMaxEntries: number;
+  /**
    * Serve the unauthenticated `/__diag/ws` reachability page. Off by default:
    * it is a debugging aid for the tailnet phase, and must not become a public
    * surface once the Cloudflare tunnel cutover lands (see "Release Gates" in
@@ -82,6 +108,14 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     geocoderTimeoutMs: intEnv('GEOCODER_TIMEOUT_MS', 6_000),
     geocoderCacheTtlMs: intEnv('GEOCODER_CACHE_TTL_MS', 24 * 60 * 60 * 1000),
     geocoderRatePerMinute: intEnv('GEOCODER_RATE_PER_MINUTE', 30),
+    routerUrl: process.env.ROUTER_URL ?? 'https://router.project-osrm.org/route/v1/driving',
+    routerUserAgent:
+      process.env.ROUTER_USER_AGENT ??
+      'runs-app/1.0 (private car-group coordination; https://github.com/isaactan98/car-community-app)',
+    routerTimeoutMs: intEnv('ROUTER_TIMEOUT_MS', 6_000),
+    routerCacheTtlMs: intEnv('ROUTER_CACHE_TTL_MS', 7 * 24 * 60 * 60 * 1000),
+    routerFailureTtlMs: intEnv('ROUTER_FAILURE_TTL_MS', 60_000),
+    routerCacheMaxEntries: intEnv('ROUTER_CACHE_MAX_ENTRIES', 500),
     enableWsDiag: (process.env.ENABLE_WS_DIAG ?? '') === '1',
     ...overrides,
   };

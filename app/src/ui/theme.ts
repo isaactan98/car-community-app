@@ -75,6 +75,15 @@ export interface Palette {
   monogram: ColorValue;
   /** Chip behind labels drawn on the map. */
   mapChip: ColorValue;
+  /**
+   * The run's route line. Deliberately a cool neutral and not one of the
+   * signal colours: tint is me, blue is on the way, green is arrived, gray is
+   * stale. The route is furniture — it says where the road goes, and it must
+   * lose every argument with a dot for the driver's attention.
+   */
+  mapRoute: ColorValue;
+  /** Casing drawn under the route so it survives a busy basemap. */
+  mapRouteCasing: ColorValue;
   /** Ground under the map while tiles load. */
   mapBackground: ColorValue;
   /** Translucent panel for the live dock and the map sheet. */
@@ -104,6 +113,8 @@ const palettes: Record<Scheme, Palette> = {
     gray: "#8A93A1",
     monogram: "#1E232C",
     mapChip: "rgba(21,25,32,0.88)",
+    mapRoute: "#7C93AD",
+    mapRouteCasing: "rgba(8,10,14,0.65)",
     mapBackground: "#0E1218",
     glass: "rgba(21,25,32,0.92)",
   },
@@ -129,6 +140,8 @@ const palettes: Record<Scheme, Palette> = {
     gray: "#8A93A1",
     monogram: "#E4E8EE",
     mapChip: "rgba(255,255,255,0.92)",
+    mapRoute: "#5E6E83",
+    mapRouteCasing: "rgba(255,255,255,0.85)",
     mapBackground: "#E4E8EE",
     glass: "rgba(255,255,255,0.94)",
   },

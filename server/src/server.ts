@@ -4,6 +4,7 @@ import { loadConfig, type Config } from './config.js';
 import { Service } from './service.js';
 import { Hub } from './hub.js';
 import { PlaceSearch } from './places.js';
+import { RouteLookup } from './route.js';
 import { createHttpApp } from './http.js';
 import { attachWs } from './ws.js';
 import { log } from './logger.js';
@@ -26,7 +27,8 @@ export function createRunsServer(overrides: Partial<Config> = {}): RunsServer {
   service.seedInviteCodes(config.seedInviteCodes);
 
   const places = new PlaceSearch(config);
-  const app = createHttpApp(service, places, config.enableWsDiag);
+  const routes = new RouteLookup(config);
+  const app = createHttpApp(service, places, routes, config.enableWsDiag);
   const server = createServer(app);
   const ws = attachWs(server, service, hub, config);
 

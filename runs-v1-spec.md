@@ -98,6 +98,18 @@ A 50+ person car friend group coordinates meets and drives entirely through a Wh
   through our own server (`GET /api/v1/places/search`), never from the phone
   to a public geocoder: see docs/CONTRACT.md for why. Free OSM geocoder
   (Photon by default), swappable by env var without a new APK.
+- [x] **R10. The run's line on the live map** — a line from the meetup to the
+  destination, so the map shows where the run *goes* and not just where the
+  cars currently are. The driveable road where the server's router can produce
+  one (`GET /api/v1/runs/:id/route`, OSRM by default, swappable by env var);
+  a dashed direct line, labelled as such, where it cannot. Deliberately *not*
+  per-member routing: that would be a routing call per phone per position
+  update, which every free router's usage policy exists to forbid, and it
+  duplicates the Waze handoff (R5) that the group actually navigates with.
+  Added 20 Sep 2026. The straight-line-only version of this was considered and
+  rejected as the default: a straight line from Gelang Patah to a kopitiam in
+  Singapore crosses the Straits of Johor, and a map that draws roads through
+  water is one nobody trusts at 100 km/h.
 - [ ] Regroup pin: any member drops a pin, everyone gets a push + one-tap Waze link
 - [ ] Fall-behind alert: notify run participants when a member drops more than X km behind the group
 - [ ] Post-run recap: route line replay (positions only), distance, duration — no speed

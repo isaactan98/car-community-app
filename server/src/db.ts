@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS runs (
   -- server-derived from positions -- a run has a creator, not a leader.
   phase            TEXT NOT NULL DEFAULT 'gathering'
                      CHECK (phase IN ('gathering','driving')),
+  -- The road from meetup to destination, as the JSON this server serves from
+  -- GET /runs/:id/route ({ points, distanceMeters }), or NULL when it has not
+  -- been fetched yet. Stored rather than cached in memory because it cannot
+  -- change: a run's pins are fixed at creation, so once this is filled the
+  -- upstream router is never asked about this run again -- not after a restart,
+  -- not after a redeploy, not ever. Geometry only; there is deliberately no
+  -- duration in it (Hard Constraint 1).
+  route_json       TEXT,
   created_at       INTEGER NOT NULL,
   ended_at         INTEGER,                 -- epoch ms, set when state -> ended
   last_activity_at INTEGER                  -- epoch ms of start or latest position; drives auto-end
@@ -106,6 +114,11 @@ function migrate(db: DB): void {
   }
   if (!hasColumn('run_attendees', 'at_destination')) {
     db.exec('ALTER TABLE run_attendees ADD COLUMN at_destination INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!hasColumn('runs', 'route_json')) {
+    // Nullable with no default: an existing run simply has no route yet, and
+    // the first live map to open it fills one in.
+    db.exec('ALTER TABLE runs ADD COLUMN route_json TEXT');
   }
 }
 

@@ -74,6 +74,12 @@ onboard the whole group); the `uses` counter is tracked in the DB.
 | `GEOCODER_TIMEOUT_MS` | `6000` | Give up on the geocoder after this long |
 | `GEOCODER_CACHE_TTL_MS` | `86400000` (24 h) | How long a search result stays cached |
 | `GEOCODER_RATE_PER_MINUTE` | `30` | Upstream-hitting searches allowed per member per minute |
+| `ROUTER_URL` | Public FOSSGIS OSRM demo | OSRM-shaped routing upstream for the live map's line (`{base}/{lng},{lat};{lng},{lat}`). `''` turns road routes off |
+| `ROUTER_USER_AGENT` | `runs-app/1.0 (…)` | Sent upstream. Free routers require a real, identifying agent |
+| `ROUTER_TIMEOUT_MS` | `6000` | Give up on the router after this long |
+| `ROUTER_CACHE_TTL_MS` | `604800000` (7 d) | How long a fetched route stays cached — a run's pins cannot be edited, so it never goes stale |
+| `ROUTER_FAILURE_TTL_MS` | `60000` | How long a *failed* lookup is remembered, so a router that is down isn't re-asked by every phone |
+| `ROUTER_CACHE_MAX_ENTRIES` | `500` | Cached routes, evicted oldest-first |
 
 ## Behavior summary
 
@@ -82,6 +88,16 @@ onboard the whole group); the `uses` counter is tracked in the DB.
 - **Geofence auto check-in:** while a run is active, an rsvped member whose
   position lands within 150 m (haversine) of the meetup flips to `arrived`
   and `member_arrived` is broadcast.
+- **The run's line (R10):** `GET /runs/:id/route` answers the road from the
+  meetup to the destination, for the line the live map draws. One upstream call
+  per run, *ever* — a run's pins are fixed at creation, so the fetched route is
+  written to `runs.route_json` and served from there afterwards, through
+  restarts and redeploys alike. It is warmed in the background when the run is
+  created (creating a run never waits on the router, nor fails if it is down),
+  and the burst of phones opening the live map at the same moment is coalesced
+  into one request. A missing route is always `{ "route": null }` and never an
+  error — the app draws a dashed direct line and says so. OSRM's `duration` is
+  dropped and never forwarded; distance over it would be a speed.
 - **The destination leg (R8):** a run is two legs. The same 150 m fence around
   the destination flips `atDestination` and broadcasts `member_at_destination`
   — open to any joined member, since driving straight to the destination is a

@@ -2,6 +2,9 @@
  * Live map for an active run (R4):
  * - all participants' last positions from WS snapshots on a MapLibre map
  *   (OpenFreeMap style — no Mapbox/Google)
+ * - the run's line: the driveable road from meetup to destination where the
+ *   server's router could produce one, a dashed "as the crow flies" bearing
+ *   where it could not (R10)
  * - per-dot staleness indicator when last update > 60 s
  * - "distance to car ahead" readout (nearest participant ahead along my
  *   bearing to destination/meetup — simple version per spec)
@@ -16,6 +19,8 @@
  */
 import {
   Camera,
+  GeoJSONSource,
+  Layer,
   Map,
   Marker,
   type CameraRef,
@@ -25,6 +30,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -41,7 +47,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { getRun } from "../api/client";
+import { getRun, getRunRoute } from "../api/client";
 import type { LatLng, Place, SnapshotMember } from "../api/types";
 import { MAP_STYLE_DARK_URL, MAP_STYLE_MUTED_URL } from "../config";
 import {
@@ -53,11 +59,23 @@ import {
 import { formatEta } from "../lib/eta";
 import { distanceToCarAhead, formatDistance, haversineMeters } from "../lib/geo";
 import { currentLeg, legTarget, runPhase, type Leg } from "../lib/leg";
+import {
+  routeFeature,
+  routeLine,
+  type RouteLine as RouteLineShape,
+  type RunRoute,
+} from "../lib/routeLine";
 import { initialLiveRunState, liveRunReducer } from "../lib/snapshotCache";
 import { formatAge, isStale } from "../lib/staleness";
 import type { ScreenProps } from "../navigation/types";
 import { useSession } from "../session/SessionContext";
-import { cacheRun, loadCachedRun, loadCachedSnapshot } from "../storage/storage";
+import {
+  cacheRoute,
+  cacheRun,
+  loadCachedRoute,
+  loadCachedRun,
+  loadCachedSnapshot,
+} from "../storage/storage";
 import { Avatar, Button, LiveBadge, Loading, WazeButton } from "../ui/components";
 import { haptic } from "../ui/haptics";
 import { Icon, type IconName } from "../ui/Icon";
@@ -135,6 +153,8 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
   const { member } = useSession();
   const insets = useSafeAreaInsets();
   const [state, dispatch] = useReducer(liveRunReducer, initialLiveRunState);
+  // `route` is taken — that is navigation's. This is the road on the map.
+  const [roadRoute, setRoadRoute] = useState<RunRoute | null>(null);
   const now = useNow(5000);
   const [selected, setSelected] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -170,6 +190,36 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Fetch the road route once per run, and only once: a run's meetup and
+   * destination are fixed at creation, so this answer never changes and
+   * re-asking on every snapshot would be fifty phones hammering a shared
+   * public router for a line that is already on screen.
+   *
+   * Cache first so a phone that opened this run at the meetup still draws the
+   * real road in a tunnel with the server unreachable — the one piece of the
+   * map degraded mode can keep exactly right.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const cached = await loadCachedRoute(runId);
+      if (cancelled) return;
+      if (cached) setRoadRoute(cached);
+      try {
+        const fresh = await getRunRoute(runId);
+        if (cancelled || !fresh) return;
+        setRoadRoute(fresh);
+        void cacheRoute(runId, fresh);
+      } catch {
+        // Server unreachable. The cached route stands, or the direct line does.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
 
   useEffect(() => {
     // We almost always arrive here after RunDetail already opened the socket,
@@ -265,6 +315,18 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
         )
       : null;
 
+  /**
+   * Memoised, and it matters: this screen re-renders every 5 s off `useNow`
+   * and again on every snapshot, and a fresh `line` object each time would
+   * hand <GeoJSONSource> new `data` by identity and re-upload the whole route
+   * to the native map on every tick. The inputs only change when the fetch
+   * lands, once per run.
+   */
+  const line = useMemo(
+    () => routeLine(run?.meetup, run?.destination, roadRoute),
+    [run?.meetup, run?.destination, roadRoute],
+  );
+
   if (!run) return <Loading />;
 
   // Past the `!run` guard the leg target is always a real place.
@@ -319,6 +381,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
           ref={cameraRef}
           initialViewState={{ bounds: initialBounds, padding: fitPadding }}
         />
+        {line ? <RouteLine line={line} /> : null}
         {visible.map((m) => {
           const pos = m.lastPosition!;
           const memberStale = isStale(pos.ts, now);
@@ -448,6 +511,12 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
           />
         ) : null}
 
+        {line?.kind === "direct" ? (
+          <Text style={s.routeNote} numberOfLines={2}>
+            Dashed line = direction only, not the road. Waze has the turns.
+          </Text>
+        ) : null}
+
         <View style={s.wazeRow}>
           <WazeButton
             lat={navTarget.lat}
@@ -468,6 +537,76 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
         />
       </Sheet>
     </View>
+  );
+}
+
+/**
+ * The run's line, drawn under everything else on the map.
+ *
+ * Two layers, not one: a wide casing under a narrower line is the oldest trick
+ * in cartography, and it is what lets the same colour survive both a near-white
+ * Positron basemap in daylight and a near-black one at night without the line
+ * dissolving into a motorway it happens to sit on top of.
+ *
+ * Width is zoom-interpolated so the line is a hairline when the whole JB–
+ * Singapore corridor is on screen and a proper road-width ribbon once you are
+ * down at junction level. A fixed width is either invisible at one end or a fat
+ * worm at the other.
+ *
+ * The dashed variant is the direct fallback, and the dashes are doing real
+ * work: "dashed means not a real road" is about as close to a universal map
+ * convention as exists, and without it a straight line across the Straits of
+ * Johor is simply a lie drawn at 4 px.
+ *
+ * `beforeId` is deliberately absent. MapLibre appends the layer on top of the
+ * basemap's own layers — which is what we want, the line should be legible
+ * over the road casing rather than buried under it — while member dots and
+ * place pins are <Marker> view annotations and always float above all of it.
+ */
+function RouteLine({ line }: { line: RouteLineShape }) {
+  const c = usePalette();
+  const direct = line.kind === "direct";
+  // Same reason the parent memoises `line`: `data` is compared by identity.
+  const data = useMemo(() => routeFeature(line), [line]);
+  // Re-keying on the kind forces a fresh layer rather than a paint mutation:
+  // MapLibre does not reliably clear `line-dasharray` when it is set back to
+  // undefined, which would leave the road route wearing the fallback's dashes
+  // for the rest of the run. Scheme is deliberately NOT in the key — colours
+  // repaint in place, and tearing the source down would flash the line on
+  // every sunset.
+  return (
+    <GeoJSONSource
+      key={line.kind}
+      id="run-route"
+      data={data}
+      // The road geometry arrives pre-simplified from the router; thinning it
+      // again client-side is what puts visible corners on a highway curve.
+      tolerance={0}
+    >
+      <Layer
+        id="run-route-casing"
+        type="line"
+        layout={{ "line-cap": "round", "line-join": "round" }}
+        paint={{
+          "line-color": c.mapRouteCasing as string,
+          "line-opacity": direct ? 0.5 : 0.9,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4, 12, 7, 16, 11],
+        }}
+      />
+      <Layer
+        id="run-route-line"
+        type="line"
+        layout={{ "line-cap": direct ? "butt" : "round", "line-join": "round" }}
+        paint={{
+          "line-color": c.mapRoute as string,
+          "line-opacity": direct ? 0.72 : 0.95,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 12, 4, 16, 7],
+          // Dash lengths are multiples of the line width, so this stays a
+          // dash-and-gap of the same proportion at every zoom.
+          ...(direct ? { "line-dasharray": [1.6, 1.4] } : {}),
+        }}
+      />
+    </GeoJSONSource>
   );
 }
 
@@ -978,6 +1117,9 @@ const useStyles = makeStyles((c) => ({
   chipText: { gap: 0 },
   chipName: { ...type.caption, fontSize: 12.5, color: c.label },
   chipDetail: { ...type.monoSmall, fontSize: 10.5, color: c.secondaryLabel },
+
+  // Quiet on purpose: this is a caveat about the map, not a thing to act on.
+  routeNote: { ...type.footnote, fontSize: 12, color: c.tertiaryLabel },
 
   wazeRow: { flexDirection: "row", gap: spacing.s },
 

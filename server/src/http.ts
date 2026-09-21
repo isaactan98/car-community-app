@@ -1,6 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { HttpError, type Service } from './service.js';
 import type { PlaceSearch } from './places.js';
+import { resolveRunRoute, warmRunRoute, type RouteLookup } from './route.js';
 import { log } from './logger.js';
 
 declare module 'express-serve-static-core' {
@@ -50,6 +51,7 @@ const WS_DIAG_PAGE = `<!doctype html>
 export function createHttpApp(
   service: Service,
   places: PlaceSearch,
+  routes: RouteLookup,
   enableWsDiag = false,
 ): express.Express {
   const app = express();
@@ -170,7 +172,12 @@ export function createHttpApp(
   // ----- runs -----
 
   api.post('/runs', (req, res) => {
-    res.json(service.createRun(req.member!.id, req.body));
+    const run = service.createRun(req.member!.id, req.body);
+    // Fetch the map line now, in the background, so it is already on the run
+    // row by the time anyone opens the live map. Creating a run must never
+    // block on a third party, nor fail because one is down.
+    warmRunRoute(service, routes, run);
+    res.json(run);
   });
 
   api.get('/runs', (_req, res) => {
@@ -196,6 +203,30 @@ export function createHttpApp(
 
   api.post('/runs/:id/end', (req, res) => {
     res.json(service.endRun(req.params.id, req.member!.id));
+  });
+
+  /**
+   * The road between this run's meetup and its destination, for the line on
+   * the live map. `service.getRun` first so an unknown run is a 404 and only
+   * an authenticated member can spend an upstream call.
+   *
+   * Always 200. `{ route: null }` covers all four no-line cases — the run has
+   * no destination, the router is off, it did not answer, or it had no route —
+   * because the map's response to each is identical: draw the direct line
+   * instead. Usually this serves the route already stored on the run row at
+   * creation and touches nothing external at all.
+   */
+  api.get('/runs/:id/route', (req, res, next) => {
+    let run;
+    try {
+      run = service.getRun(req.params.id);
+    } catch (err) {
+      next(err);
+      return;
+    }
+    resolveRunRoute(service, routes, run)
+      .then((route) => res.json({ route }))
+      .catch(next);
   });
 
   // ----- place search (R9) -----

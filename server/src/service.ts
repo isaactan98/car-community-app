@@ -241,6 +241,33 @@ export class Service {
     return this.toRunView(this.runRow(runId));
   }
 
+  /**
+   * The stored road route for this run, as the raw JSON string it was saved
+   * as, or null when none has been fetched yet.
+   *
+   * Deliberately opaque: this layer owns the database, not the shape of a
+   * route. Keeping it a string is what stops `service.ts` and `route.ts`
+   * importing each other's types in a circle for no gain.
+   */
+  storedRouteJson(runId: string): string | null {
+    const row = this.db.prepare('SELECT route_json FROM runs WHERE id = ?').get(runId) as
+      | { route_json: string | null }
+      | undefined;
+    return row?.route_json ?? null;
+  }
+
+  /**
+   * Save this run's road route, once. Writing only where the column is still
+   * NULL makes two phones racing on the first live map idempotent, and means
+   * a stored route can never be silently replaced by a later, different answer
+   * from the router — the pins did not move, so neither should the line.
+   */
+  storeRouteJson(runId: string, json: string): void {
+    this.db
+      .prepare('UPDATE runs SET route_json = ? WHERE id = ? AND route_json IS NULL')
+      .run(json, runId);
+  }
+
   createRun(creatorId: string, body: unknown): RunView {
     const b = (body ?? {}) as Record<string, unknown>;
     if (typeof b.name !== 'string' || b.name.trim() === '' || b.name.length > 120)
