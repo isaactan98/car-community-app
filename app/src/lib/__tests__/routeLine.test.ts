@@ -45,6 +45,25 @@ describe("routeLine", () => {
     expect(line.kind).toBe("direct");
   });
 
+  it("draws nothing while the road answer is still in flight", () => {
+    // The dashed fallback is a claim that this run has no road route. Making
+    // it for half a second and then taking it back is the bug this prevents.
+    expect(routeLine(MEETUP, DEST, null, { settled: false })).toBeNull();
+    expect(routeLine(MEETUP, DEST, undefined, { settled: false })).toBeNull();
+  });
+
+  it("draws the road immediately even unsettled — a cached route needs no wait", () => {
+    expect(routeLine(MEETUP, DEST, ROAD, { settled: false })?.kind).toBe("road");
+  });
+
+  it("falls back once the answer is in, however it landed", () => {
+    expect(routeLine(MEETUP, DEST, null, { settled: true })?.kind).toBe("direct");
+  });
+
+  it("treats a caller that says nothing as settled", () => {
+    expect(routeLine(MEETUP, DEST, null)?.kind).toBe("direct");
+  });
+
   it("draws nothing without a destination", () => {
     expect(routeLine(MEETUP, null, ROAD)).toBeNull();
     expect(routeLine(null, DEST, ROAD)).toBeNull();

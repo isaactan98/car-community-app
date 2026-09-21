@@ -155,6 +155,9 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
   const [state, dispatch] = useReducer(liveRunReducer, initialLiveRunState);
   // `route` is taken — that is navigation's. This is the road on the map.
   const [roadRoute, setRoadRoute] = useState<RunRoute | null>(null);
+  // Whether the road answer has come back at all — success, "none", or
+  // failure. Until it has, the map draws no line rather than the wrong one.
+  const [routeSettled, setRouteSettled] = useState(false);
   const now = useNow(5000);
   const [selected, setSelected] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -200,6 +203,14 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
    * Cache first so a phone that opened this run at the meetup still draws the
    * real road in a tunnel with the server unreachable — the one piece of the
    * map degraded mode can keep exactly right.
+   *
+   * `routeSettled` flips however this ends, including the failure, because the
+   * map needs to know the answer has arrived rather than that it was good: a
+   * server we cannot reach is still a settled "no road route for now", and the
+   * direct line is exactly what degraded mode should show for it.
+   *
+   * Like `load()` above, this assumes `runId` does not change under a mounted
+   * screen — navigating to another run pushes a new one.
    */
   useEffect(() => {
     let cancelled = false;
@@ -209,11 +220,15 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
       if (cached) setRoadRoute(cached);
       try {
         const fresh = await getRunRoute(runId);
-        if (cancelled || !fresh) return;
-        setRoadRoute(fresh);
-        void cacheRoute(runId, fresh);
+        if (cancelled) return;
+        if (fresh) {
+          setRoadRoute(fresh);
+          void cacheRoute(runId, fresh);
+        }
       } catch {
         // Server unreachable. The cached route stands, or the direct line does.
+      } finally {
+        if (!cancelled) setRouteSettled(true);
       }
     })();
     return () => {
@@ -323,8 +338,9 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
    * lands, once per run.
    */
   const line = useMemo(
-    () => routeLine(run?.meetup, run?.destination, roadRoute),
-    [run?.meetup, run?.destination, roadRoute],
+    () =>
+      routeLine(run?.meetup, run?.destination, roadRoute, { settled: routeSettled }),
+    [run?.meetup, run?.destination, roadRoute, routeSettled],
   );
 
   if (!run) return <Loading />;

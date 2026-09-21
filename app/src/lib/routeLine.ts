@@ -59,15 +59,25 @@ const toDeg = (rad: number) => (rad * 180) / Math.PI;
 
 /**
  * The line to draw between `meetup` and `destination`, or null when there is
- * nothing to draw (no destination, or the two pins are the same spot).
+ * nothing to draw (no destination, the two pins are the same spot, or we do
+ * not yet know which line this is).
  *
  * `route` is the server's road answer; pass null whenever it is missing and
  * the direct fallback is used instead.
+ *
+ * `settled` says whether the road answer has come back yet — success, "no
+ * route", or failure, all three. It defaults to true for callers that already
+ * have their answer. Pass false while the fetch is in flight, and nothing is
+ * drawn: the fallback is a *claim* that this run has no road route, and making
+ * that claim for half a second before contradicting it is worse than a map
+ * that takes half a second to draw its line. The dashes would flicker, the
+ * "not the road" caption would appear and vanish, and the sheet would jump.
  */
 export function routeLine(
   meetup: Place | LatLng | null | undefined,
   destination: Place | LatLng | null | undefined,
   route: RunRoute | null | undefined,
+  { settled = true }: { settled?: boolean } = {},
 ): RouteLine | null {
   if (!meetup || !destination) return null;
 
@@ -75,6 +85,7 @@ export function routeLine(
   if (road.length >= 2) {
     return { kind: "road", coordinates: road.map((p) => [p.lng, p.lat]) };
   }
+  if (!settled) return null;
 
   // Two pins dropped on the same spot: a zero-length line is a rendering
   // artefact, not information.
