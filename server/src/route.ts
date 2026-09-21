@@ -15,8 +15,10 @@
  * the pair of points, not a free-text query, so the ceiling is "how many runs
  * exist", and only a member who can already read the run can ask.
  *
- * Three defences keep that "one call" honest:
- *   - a long positive cache, because the road does not move;
+ * Four defences keep that "one call" honest, outermost first:
+ *   - the route is stored on the run row once fetched, so a restart, a
+ *     redeploy or a year later costs nothing — `resolveRunRoute` below;
+ *   - a long in-process positive cache, because the road does not move;
  *   - a short negative cache, so a router that is down is asked again in a
  *     minute rather than by every phone that opens the map;
  *   - in-flight coalescing, because fifty phones open the live map within the
@@ -32,7 +34,7 @@
  * own business (`app/src/lib/eta.ts`) and stays that way.
  */
 import type { Config } from './config.js';
-import type { Point } from './service.js';
+import type { Point, RunView, Service } from './service.js';
 import { isValidLat, isValidLng } from './geo.js';
 import { log } from './logger.js';
 
@@ -208,4 +210,81 @@ export function decimate(points: RoutePoint[], max: number): RoutePoint[] {
   }
   out.push(last);
   return out;
+}
+
+/**
+ * This run's road route: from the run row if it has one, otherwise from the
+ * router, stored on the way back.
+ *
+ * The store is what makes "one upstream call per run, ever" literally true
+ * rather than true-until-the-container-restarts. A run's meetup and
+ * destination are fixed at creation, so a stored answer is never stale and is
+ * returned without so much as a cache lookup.
+ *
+ * Never throws: every failure is a null route, which the app draws as a
+ * labelled direct line. Nothing is stored on failure either, so a router that
+ * was down when the run was created is simply asked again by whoever opens the
+ * live map next.
+ */
+export async function resolveRunRoute(
+  service: Service,
+  routes: RouteLookup,
+  run: RunView,
+): Promise<RouteLine | null> {
+  if (!run.destination) return null;
+
+  const stored = service.storedRouteJson(run.id);
+  if (stored !== null) {
+    const parsed = parseStored(stored);
+    if (parsed) return parsed;
+    // Unreadable JSON in the column means a bug or a hand-edited database;
+    // fetching again is strictly better than serving nothing forever.
+    log.warn('stored route was unreadable, refetching', { runId: run.id });
+  }
+
+  const route = await routes.between(run.meetup, run.destination);
+  if (route) service.storeRouteJson(run.id, JSON.stringify(route));
+  return route;
+}
+
+/**
+ * Warm this run's route in the background, without making the caller wait.
+ *
+ * Called right after a run is created so the line is already on the row by the
+ * time anyone opens the live map. Deliberately fire-and-forget: creating a run
+ * must not block on a third party, and must not fail because one is down.
+ */
+export function warmRunRoute(service: Service, routes: RouteLookup, run: RunView): void {
+  void resolveRunRoute(service, routes, run).catch((err: unknown) => {
+    log.warn('route warm-up failed', {
+      runId: run.id,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
+
+function parseStored(json: string): RouteLine | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  // Same shape the router produces, so the same validator proves it. Wrapping
+  // it as `{ routes: [...] }` would be the wrong check — this is our own JSON,
+  // not OSRM's.
+  const points = (body as { points?: unknown })?.points;
+  if (!Array.isArray(points) || points.length < 2) return null;
+  const clean: RoutePoint[] = [];
+  for (const p of points) {
+    const lat = Number((p as RoutePoint)?.lat);
+    const lng = Number((p as RoutePoint)?.lng);
+    if (!isValidLat(lat) || !isValidLng(lng)) return null;
+    clean.push({ lat, lng });
+  }
+  const distance = Number((body as { distanceMeters?: unknown }).distanceMeters);
+  return {
+    points: clean,
+    distanceMeters: Number.isFinite(distance) && distance >= 0 ? distance : 0,
+  };
 }

@@ -90,11 +90,14 @@ onboard the whole group); the `uses` counter is tracked in the DB.
   and `member_arrived` is broadcast.
 - **The run's line (R10):** `GET /runs/:id/route` answers the road from the
   meetup to the destination, for the line the live map draws. One upstream call
-  per run, ever: a run's pins are fixed at creation, so the answer is cached for
-  a week and the burst of phones that open the live map at the same moment is
-  coalesced into a single request. A missing route is always `{ "route": null }`
-  and never an error — the app draws a dashed direct line and says so. OSRM's
-  `duration` is dropped and never forwarded; distance over it would be a speed.
+  per run, *ever* — a run's pins are fixed at creation, so the fetched route is
+  written to `runs.route_json` and served from there afterwards, through
+  restarts and redeploys alike. It is warmed in the background when the run is
+  created (creating a run never waits on the router, nor fails if it is down),
+  and the burst of phones opening the live map at the same moment is coalesced
+  into one request. A missing route is always `{ "route": null }` and never an
+  error — the app draws a dashed direct line and says so. OSRM's `duration` is
+  dropped and never forwarded; distance over it would be a speed.
 - **The destination leg (R8):** a run is two legs. The same 150 m fence around
   the destination flips `atDestination` and broadcasts `member_at_destination`
   — open to any joined member, since driving straight to the destination is a

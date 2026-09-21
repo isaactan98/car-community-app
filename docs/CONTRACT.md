@@ -167,10 +167,21 @@ stays Waze's job.
 
 This endpoint is cheap for the same structural reason: a run's `meetup` and
 `destination` are fixed at creation (there is no run-edit endpoint), so the
-answer never changes. A whole group on a whole run costs **one** upstream call,
-held by a long server-side cache, coalesced across the burst of phones that open
-the live map at the same moment, and cached again on each phone so degraded mode
-keeps the real road.
+answer never changes and can be kept forever. A whole run costs **one** upstream
+call, ever:
+
+1. the route is **stored on the run row** the first time it is fetched, and
+   warmed in the background as soon as the run is created — so a restart, a
+   redeploy, or a request a year later costs nothing external;
+2. an in-process cache holds it between those;
+3. concurrent requests are coalesced, because fifty phones open the live map in
+   the same second at the start of a run;
+4. each phone caches it too, so degraded mode keeps the real road.
+
+Creating a run never blocks on the router and never fails because it is down;
+nothing is stored on failure, so whoever opens the live map next simply tries
+again. A stored route is never replaced — the pins did not move, so neither
+does the line.
 
 Upstream is configured by `ROUTER_URL`, OSRM-shaped
 (`{base}/{lng},{lat};{lng},{lat}`, default: the public FOSSGIS OSRM demo

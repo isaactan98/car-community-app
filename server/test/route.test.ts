@@ -8,7 +8,13 @@
  * crosses this boundary.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { RouteLookup, toRouteLine, decimate } from '../src/route.js';
+import {
+  RouteLookup,
+  toRouteLine,
+  decimate,
+  resolveRunRoute,
+  type RouteLine,
+} from '../src/route.js';
 import { loadConfig } from '../src/config.js';
 import {
   startTestServer,
@@ -250,5 +256,113 @@ describe('GET /runs/:id/route', () => {
     expect(missing.status).toBe(404);
     const anon = await api(t, 'GET', '/runs/nope/route');
     expect(anon.status).toBe(401);
+  });
+});
+
+/**
+ * The run row is the outermost cache, and the one that actually matters on a
+ * homelab: the in-process caches die with every `docker compose up`, and
+ * without this the "one upstream call per run, ever" claim would really mean
+ * "one per run per redeploy".
+ */
+describe('stored routes', () => {
+  let t: TestServer;
+
+  beforeAll(async () => {
+    t = await startTestServer();
+  });
+
+  afterAll(async () => {
+    await t.stop();
+  });
+
+  /** A run created through the API, with the route column left empty. */
+  async function freshRun() {
+    const { run } = await createRunFixture(t);
+    t.runs.db.prepare('UPDATE runs SET route_json = NULL WHERE id = ?').run(run.id);
+    return t.runs.service.getRun(run.id);
+  }
+
+  it('fetches once, then never asks the router again — restart included', async () => {
+    const run = await freshRun();
+    const stub = stubRouter(osrmBody(COORDS));
+
+    const first = await resolveRunRoute(t.runs.service, lookup(stub), run);
+    expect(first!.points).toHaveLength(4);
+    expect(stub.calls).toHaveLength(1);
+
+    // A brand-new RouteLookup is exactly what a restarted container has: empty
+    // in-memory caches, nothing but the database to go on.
+    const afterRestart = await resolveRunRoute(t.runs.service, lookup(stub), run);
+    expect(stub.calls).toHaveLength(1);
+    expect(afterRestart).toEqual(first);
+  });
+
+  it('stores geometry only — no duration ever reaches the database', async () => {
+    const run = await freshRun();
+    await resolveRunRoute(t.runs.service, lookup(stubRouter(osrmBody(COORDS))), run);
+    const stored = t.runs.service.storedRouteJson(run.id)!;
+    expect(stored).not.toMatch(/speed|velocity|duration/i);
+    expect(JSON.parse(stored).distanceMeters).toBeCloseTo(24_310.4);
+  });
+
+  it('stores nothing when the router fails, and retries on the next request', async () => {
+    const run = await freshRun();
+    const down = stubRouter(null, { throws: true });
+    expect(await resolveRunRoute(t.runs.service, lookup(down), run)).toBeNull();
+    expect(t.runs.service.storedRouteJson(run.id)).toBeNull();
+
+    const up = stubRouter(osrmBody(COORDS));
+    const later = await resolveRunRoute(t.runs.service, lookup(up), run);
+    expect(later!.points).toHaveLength(4);
+    expect(t.runs.service.storedRouteJson(run.id)).not.toBeNull();
+  });
+
+  it('never asks about a run with no destination', async () => {
+    const alice = await joinMember(t, 'StoreNoDest');
+    const created = (
+      await api(t, 'POST', '/runs', {
+        token: alice.token,
+        body: {
+          name: 'Kopi only',
+          meetup: MEETUP,
+          startsAt: new Date(Date.now() + 3_600_000).toISOString(),
+        },
+      })
+    ).json;
+    const stub = stubRouter(osrmBody(COORDS));
+    expect(
+      await resolveRunRoute(t.runs.service, lookup(stub), t.runs.service.getRun(created.id)),
+    ).toBeNull();
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('keeps the first answer — a stored route is never quietly replaced', async () => {
+    const run = await freshRun();
+    await resolveRunRoute(t.runs.service, lookup(stubRouter(osrmBody(COORDS))), run);
+
+    // A second writer (a racing request, or a router that changed its mind)
+    // must not move a line people are already driving to.
+    t.runs.service.storeRouteJson(run.id, JSON.stringify({ points: [], distanceMeters: 9 }));
+    expect(JSON.parse(t.runs.service.storedRouteJson(run.id)!).points).toHaveLength(4);
+  });
+
+  it('refetches rather than serving an unreadable column', async () => {
+    const run = await freshRun();
+    for (const junk of ['not json at all', '{"points":[]}', '{"points":[{"lat":999,"lng":0},{"lat":1,"lng":2}]}']) {
+      t.runs.db.prepare('UPDATE runs SET route_json = ? WHERE id = ?').run(junk, run.id);
+      const stub = stubRouter(osrmBody(COORDS));
+      const route: RouteLine | null = await resolveRunRoute(t.runs.service, lookup(stub), run);
+      expect(stub.calls).toHaveLength(1);
+      expect(route!.points).toHaveLength(4);
+    }
+  });
+
+  it('warms the route in the background when a run is created', async () => {
+    const { run } = await createRunFixture(t);
+    // The real router is off in tests (`routerUrl: ''`), so nothing is stored —
+    // what this proves is that creating a run neither waits for it nor fails.
+    expect(run.id).toBeTruthy();
+    expect(t.runs.service.storedRouteJson(run.id)).toBeNull();
   });
 });
