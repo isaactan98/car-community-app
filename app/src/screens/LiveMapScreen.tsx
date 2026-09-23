@@ -262,12 +262,14 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
   const me = members.find((m) => m.memberId === selfId);
   const selectedMember = positioned.find((m) => m.memberId === selected) ?? null;
 
-  // Leave room for the bar above and the sheet below.
+  // Leave room for the bar above and the sheet below, and at the sides for a
+  // pin's caption: it is centred on the pin, and "DESTINATION · 2 HERE" is
+  // ~150 pt wide, so a pin fitted to the edge used to have its caption cut off.
   const fitPadding = {
     top: insets.top + 64,
     bottom: sheetHeight + 24,
-    left: 48,
-    right: 48,
+    left: 84,
+    right: 84,
   };
 
   const fitAll = (duration: number) => {
@@ -356,6 +358,9 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
   const navToDestination =
     !!run.destination && (myLeg === "destination" || iAmThere);
   const navTarget = navToDestination ? run.destination! : target;
+  // At the last stop there is nowhere left to drive: Waze stays available
+  // (the car park entrance, a second building) but stops being the headline.
+  const atLastStop = iAmThere && (myLeg === "destination" || !run.destination);
 
   const stale =
     !state.connected || (state.snapshotAt !== null && now - state.snapshotAt > 60_000);
@@ -390,8 +395,10 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
           if (Date.now() - markerPressedAt.current > 400) setSelected(null);
         }}
         compass={false}
-        logoPosition={{ top: insets.top + 60, left: 12 }}
-        attributionPosition={{ top: insets.top + 60, left: 96 }}
+        // Bottom-left, just above the sheet: the top of the map is where the
+        // meetup pin usually lands, and the logo used to sit on its caption.
+        logoPosition={{ bottom: sheetHeight + 8, left: 12 }}
+        attributionPosition={{ bottom: sheetHeight + 8, left: 96 }}
       >
         <Camera
           ref={cameraRef}
@@ -539,8 +546,8 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
             lng={navTarget.lng}
             label={`Waze to ${navTarget.label || "the next stop"}`}
             place={navToDestination ? "the destination" : "the meetup"}
-            role="filled"
-            size="large"
+            role={atLastStop ? "tinted" : "filled"}
+            size={atLastStop ? "regular" : "large"}
             style={s.flex}
           />
         </View>
@@ -749,12 +756,14 @@ function CrewStrip({
         const isSelf = m.memberId === selfId;
         const pos = m.lastPosition!;
         const memberStale = isStale(pos.ts, now);
+        // Arrived reads the same for you as for everyone else; your car name
+        // is only the fallback while you are still on the way.
         const detail = memberStale
           ? `${formatAge(pos.ts, now)} ago`
-          : isSelf
-            ? (m.carName ?? "You")
-            : hasReached(m, leg)
-              ? "Arrived"
+          : hasReached(m, leg)
+            ? "Arrived"
+            : isSelf
+              ? (m.carName ?? "You")
               : myPos
                 ? formatDistance(haversineMeters(myPos, pos))
                 : formatEta(m.etaSeconds);
@@ -957,6 +966,9 @@ function ArrivedReadout({
         <Text style={s.arrivedEyebrow}>DESTINATION</Text>
         <Text style={s.arrivedTitle} numberOfLines={2}>
           You made it
+        </Text>
+        <Text style={s.arrivedBody} numberOfLines={2}>
+          The run ends by itself 10 min after everyone&apos;s here.
         </Text>
       </View>
     );
