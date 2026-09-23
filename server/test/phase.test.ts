@@ -301,6 +301,7 @@ describe('schema migration', () => {
         (db.pragma(`table_info(${table})`) as { name: string }[]).map((c) => c.name);
       expect(columns('runs')).toContain('phase');
       expect(columns('run_attendees')).toContain('at_destination');
+      expect(columns('run_attendees')).toContain('at_destination_at');
 
       // Existing rows get the safe defaults, not nulls.
       expect(db.prepare("SELECT phase FROM runs WHERE id = 'r1'").get()).toEqual({ phase: 'gathering' });

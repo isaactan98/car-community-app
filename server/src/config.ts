@@ -15,6 +15,18 @@ export interface Config {
   sweepIntervalMs: number;
   /** Auto-end an active run after this long with no position updates. */
   autoEndAfterMs: number;
+  /**
+   * End an active run this long after the last sharing member reached the
+   * destination. Parked phones keep sending a stationary heartbeat, so the
+   * inactivity rule above never fires once everyone is there -- without this
+   * the group's locations would keep flowing all day at the office.
+   */
+  arrivedEndAfterMs: number;
+  /**
+   * End a run that was never started this long after its start time, so a run
+   * nobody kicked off does not sit under "Upcoming" forever.
+   */
+  upcomingExpireAfterMs: number;
   /** Purge position history this long after a run ends. */
   retentionMs: number;
   /** Geofence radius around the meetup (and destination) point, in meters. */
@@ -98,6 +110,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     snapshotIntervalMs: intEnv('SNAPSHOT_INTERVAL_MS', 5_000),
     sweepIntervalMs: intEnv('SWEEP_INTERVAL_MS', 60_000),
     autoEndAfterMs: intEnv('AUTO_END_AFTER_MS', 2 * 60 * 60 * 1000),
+    arrivedEndAfterMs: intEnv('ARRIVED_END_AFTER_MS', 10 * 60 * 1000),
+    upcomingExpireAfterMs: intEnv('UPCOMING_EXPIRE_AFTER_MS', 6 * 60 * 60 * 1000),
     retentionMs: intEnv('RETENTION_MS', 24 * 60 * 60 * 1000),
     geofenceRadiusM: intEnv('GEOFENCE_RADIUS_M', 150),
     departRadiusM: intEnv('DEPART_RADIUS_M', 500),

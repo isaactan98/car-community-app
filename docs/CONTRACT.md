@@ -78,7 +78,7 @@ older build: absent `phase` reads as `"gathering"`, absent `atDestination` as
 - `POST /api/v1/runs/:id/rsvp` — body `{ "carId": string | null }`. Idempotent.
 - `DELETE /api/v1/runs/:id/rsvp` — leave; hard-stops location sharing server-side.
 - `POST /api/v1/runs/:id/start` — creator only; upcoming → active.
-- `POST /api/v1/runs/:id/end` — creator only; also auto-end after 2h with no position updates.
+- `POST /api/v1/runs/:id/end` — creator only; also auto-ends after 2h with no position updates from members not yet at the destination, or 10 min after every member who has shared a position reached the destination. An `upcoming` run never started ends 6h after `startsAt`.
 
 ### Geofences and phase transitions
 

@@ -376,7 +376,7 @@ export class Service {
   }
 
   /** Shared end path (creator action or auto-end sweep). */
-  finishRun(runId: string, reason: 'creator' | 'auto_end'): void {
+  finishRun(runId: string, reason: 'creator' | 'auto_end' | 'all_arrived' | 'never_started'): void {
     this.db
       .prepare("UPDATE runs SET state = 'ended', ended_at = ? WHERE id = ? AND state != 'ended'")
       .run(Date.now(), runId);
@@ -411,7 +411,12 @@ export class Service {
     this.db
       .prepare('INSERT INTO positions (run_id, member_id, lat, lng, ts) VALUES (?, ?, ?, ?, ?)')
       .run(runId, memberId, lat, lng, ts);
-    this.db.prepare('UPDATE runs SET last_activity_at = ? WHERE id = ?').run(Date.now(), runId);
+    // A member already at the destination is parked, not driving: their
+    // heartbeat must not keep the run alive, or one phone at the office
+    // holds everyone's sharing open until someone remembers to tap End.
+    if (attendee.at_destination === 0) {
+      this.db.prepare('UPDATE runs SET last_activity_at = ? WHERE id = ?').run(Date.now(), runId);
+    }
 
     this.applyGeofences(run, memberId, attendee, lat, lng);
     return null;
@@ -465,8 +470,8 @@ export class Service {
       haversineMeters(lat, lng, run.dest_lat, run.dest_lng) <= radius
     ) {
       this.db
-        .prepare('UPDATE run_attendees SET at_destination = 1 WHERE run_id = ? AND member_id = ?')
-        .run(run.id, memberId);
+        .prepare('UPDATE run_attendees SET at_destination = 1, at_destination_at = ? WHERE run_id = ? AND member_id = ?')
+        .run(Date.now(), run.id, memberId);
       this.etas.get(run.id)?.delete(memberId); // arrived: nothing left to estimate
       this.realtime.broadcast(run.id, { type: 'member_at_destination', memberId });
       log.info('member reached destination (geofence)', { runId: run.id, memberId });
@@ -600,7 +605,11 @@ export class Service {
 
   // ---------- sweeps ----------
 
-  /** Auto-end active runs with no position updates for `autoEndAfterMs`. */
+  /**
+   * End runs that are over in all but name: active runs gone quiet, active
+   * runs whose members have all reached the destination, and upcoming runs
+   * that were never started. Returns the ids it ended.
+   */
   sweepAutoEnd(now = Date.now()): string[] {
     const cutoff = now - this.config.autoEndAfterMs;
     const stale = this.db
@@ -610,7 +619,37 @@ export class Service {
       )
       .all(cutoff) as { id: string }[];
     for (const { id } of stale) this.finishRun(id, 'auto_end');
-    return stale.map((r) => r.id);
+
+    // Everyone's there: every remaining member who has shared a position has
+    // reached the destination, the last of them at least `arrivedEndAfterMs`
+    // ago. Members who never sent a position (RSVP'd, never showed) do not
+    // hold the run open -- they are not on the road, and waiting on them is
+    // exactly how sharing ran all day.
+    const arrivedCutoff = now - this.config.arrivedEndAfterMs;
+    const arrived = this.db
+      .prepare(
+        `SELECT r.id FROM runs r
+         WHERE r.state = 'active' AND r.dest_lat IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM run_attendees a
+             WHERE a.run_id = r.id AND a.status != 'left' AND a.at_destination = 0
+               AND EXISTS (SELECT 1 FROM positions p WHERE p.run_id = r.id AND p.member_id = a.member_id))
+           AND (SELECT MAX(COALESCE(a.at_destination_at, 0)) FROM run_attendees a
+                WHERE a.run_id = r.id AND a.status != 'left' AND a.at_destination = 1) < ?`,
+      )
+      .all(arrivedCutoff) as { id: string }[];
+    for (const { id } of arrived) this.finishRun(id, 'all_arrived');
+
+    // Never started: an upcoming run well past its start time is not coming.
+    const upcoming = this.db
+      .prepare("SELECT id, starts_at FROM runs WHERE state = 'upcoming'")
+      .all() as { id: string; starts_at: string }[];
+    const expired = upcoming.filter(
+      (r) => Date.parse(r.starts_at) < now - this.config.upcomingExpireAfterMs,
+    );
+    for (const { id } of expired) this.finishRun(id, 'never_started');
+
+    return [...stale, ...arrived, ...expired].map((r) => r.id);
   }
 
   /** Purge position history `retentionMs` after a run ends (spec R7 / retention). */
