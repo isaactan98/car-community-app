@@ -65,7 +65,9 @@ onboard the whole group); the `uses` counter is tracked in the DB.
 | `DEEP_LINK_BASE` | `runs://run/` | Prefix for each run's `inviteDeepLink` (run id appended) |
 | `SNAPSHOT_INTERVAL_MS` | `5000` | WS snapshot broadcast cadence |
 | `SWEEP_INTERVAL_MS` | `60000` | Auto-end / retention sweep cadence |
-| `AUTO_END_AFTER_MS` | `7200000` (2 h) | Auto-end an active run after this long with no position updates |
+| `AUTO_END_AFTER_MS` | `7200000` (2 h) | Auto-end an active run after this long with no position updates from anyone still driving |
+| `ARRIVED_END_AFTER_MS` | `600000` (10 min) | Auto-end an active run this long after every sharing member reached the destination |
+| `UPCOMING_EXPIRE_AFTER_MS` | `21600000` (6 h) | End a never-started run this long after its start time |
 | `RETENTION_MS` | `86400000` (24 h) | Purge position history this long after a run ends |
 | `GEOFENCE_RADIUS_M` | `150` | Arrival geofence radius, around the meetup **and** the destination |
 | `DEPART_RADIUS_M` | `500` | How far a checked-in member must be from the meetup to count as having left it |
@@ -84,7 +86,9 @@ onboard the whole group); the `uses` counter is tracked in the DB.
 ## Behavior summary
 
 - **Run lifecycle:** `upcoming → active → ended`. Start/end are creator-only.
-  A sweep auto-ends active runs after 2 h without position updates.
+  A sweep auto-ends active runs after 2 h without position updates, 10 min
+  after everyone sharing has reached the destination, and ends never-started
+  runs 6 h after their start time.
 - **Geofence auto check-in:** while a run is active, an rsvped member whose
   position lands within 150 m (haversine) of the meetup flips to `arrived`
   and `member_arrived` is broadcast.
