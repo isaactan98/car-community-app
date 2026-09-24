@@ -10,7 +10,7 @@
  * unreachable (R6) — never a blank screen.
  */
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -34,9 +34,12 @@ import {
   Card,
   EmptyState,
   Eyebrow,
+  FadeIn,
   LiveBadge,
-  Loading,
   OfflineBanner,
+  PressableScale,
+  Skeleton,
+  SkeletonBlock,
 } from "../ui/components";
 import { Icon, type IconName } from "../ui/Icon";
 import {
@@ -112,6 +115,18 @@ export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
     }, [load]),
   );
 
+  const sections = useMemo(() => (runs ? groupRuns(runs) : []), [runs]);
+  // Each header and card's place top-to-bottom, so the list cascades in as
+  // one sequence across sections rather than restarting at every header.
+  const order = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const sec of sections) {
+      m.set(`h:${sec.state}`, m.size);
+      for (const r of sec.data) m.set(r.id, m.size);
+    }
+    return m;
+  }, [sections]);
+
   const refresh = async () => {
     setRefreshing(true);
     await load();
@@ -140,7 +155,7 @@ export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
     return (
       <View style={s.screen}>
         {bar}
-        <Loading />
+        <RunListSkeleton />
       </View>
     );
   }
@@ -149,7 +164,7 @@ export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
     <View style={s.screen}>
       {bar}
       <SectionList<Run, Section>
-        sections={groupRuns(runs)}
+        sections={sections}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[
           s.content,
@@ -177,54 +192,58 @@ export default function RunListScreen({ navigation }: ScreenProps<"Runs">) {
           ) : null
         }
         renderSectionHeader={({ section }) => (
-          <Eyebrow
-            title={section.title}
-            count={section.state === "active" ? undefined : section.data.length}
-            style={s.sectionHeader}
-          />
+          <FadeIn index={order.get(`h:${section.state}`)}>
+            <Eyebrow
+              title={section.title}
+              count={section.state === "active" ? undefined : section.data.length}
+              style={s.sectionHeader}
+            />
+          </FadeIn>
         )}
         renderSectionFooter={() => <View style={s.sectionGap} />}
         renderItem={({ item, section }) => {
           const going = isGoing(item, selfId);
           const open = () => navigation.navigate("RunDetail", { runId: item.id });
-          if (section.state === "active") {
-            return (
-              <HeroRunCard
-                run={item}
-                selfId={selfId}
-                now={now}
-                onOpen={open}
-                onMap={() => navigation.navigate("LiveMap", { runId: item.id })}
-              />
-            );
-          }
-          if (section.state === "ended") {
-            return <PastRow run={item} going={going} onPress={open} />;
-          }
           return (
-            <UpcomingCard
-              run={item}
-              selfId={selfId}
-              going={going}
-              now={now}
-              onPress={open}
-            />
+            <FadeIn index={order.get(item.id)}>
+              {section.state === "active" ? (
+                <HeroRunCard
+                  run={item}
+                  selfId={selfId}
+                  now={now}
+                  onOpen={open}
+                  onMap={() => navigation.navigate("LiveMap", { runId: item.id })}
+                />
+              ) : section.state === "ended" ? (
+                <PastRow run={item} going={going} onPress={open} />
+              ) : (
+                <UpcomingCard
+                  run={item}
+                  selfId={selfId}
+                  going={going}
+                  now={now}
+                  onPress={open}
+                />
+              )}
+            </FadeIn>
           );
         }}
         ItemSeparatorComponent={() => <View style={s.itemGap} />}
         ListEmptyComponent={
-          <EmptyState
-            icon="car"
-            title="No runs yet"
-            body="Plan a meetup, then share the invite link with your group."
-          >
-            <Button
-              title="New run"
-              icon="add"
-              size="regular"
-              onPress={() => navigation.navigate("CreateRun")}
-            />
-          </EmptyState>
+          <FadeIn>
+            <EmptyState
+              icon="car"
+              title="No runs yet"
+              body="Plan a meetup, then share the invite link with your group."
+            >
+              <Button
+                title="New run"
+                icon="add"
+                size="regular"
+                onPress={() => navigation.navigate("CreateRun")}
+              />
+            </EmptyState>
+          </FadeIn>
         }
       />
     </View>
@@ -249,6 +268,7 @@ function HeroRunCard({
   onMap: () => void;
 }) {
   const s = useStyles();
+  const c = usePalette();
   // Leg-aware: once the convoy has left the meetup this card counts who has
   // reached the destination, not who once stood at the petrol station.
   const { leg, there, total } = runLegCounts(run);
@@ -265,12 +285,12 @@ function HeroRunCard({
           leg === "destination" ? "at the destination" : "arrived"
         }`}
         accessibilityHint="Opens the run"
-        style={s.heroBody}
+        style={({ pressed }) => [s.heroBody, pressed && s.heroBodyPressed]}
       >
         <View style={s.heroTop}>
           <LiveBadge />
           <Text style={s.heroStarted}>
-            {formatWhen(run.startsAt, now).toUpperCase()}
+            {formatWhen(run.startsAt, now)}
           </Text>
         </View>
 
@@ -293,7 +313,7 @@ function HeroRunCard({
         </View>
 
         {names.length > 0 ? (
-          <AvatarStack names={names} selfIndex={selfIndex} />
+          <AvatarStack names={names} selfIndex={selfIndex} ringColor={c.surfaceLive} />
         ) : null}
       </Pressable>
 
@@ -322,7 +342,7 @@ function UpcomingCard({
   const selfIndex = people.findIndex((a) => a.memberId === selfId);
 
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={[
@@ -333,13 +353,15 @@ function UpcomingCard({
       ]
         .filter(Boolean)
         .join(", ")}
-      style={({ pressed }) => [s.card, pressed && { backgroundColor: c.highlight }]}
+      scaleTo={0.98}
+      style={s.card}
+      pressedStyle={{ backgroundColor: c.highlight }}
     >
       <View style={s.cardTop}>
         <Text style={s.cardName} numberOfLines={2}>
           {run.name}
         </Text>
-        <Text style={s.cardWhen}>{formatWhen(run.startsAt, now).toUpperCase()}</Text>
+        <Text style={s.cardWhen}>{formatWhen(run.startsAt, now)}</Text>
       </View>
       <RouteLine run={run} />
       <View style={s.cardBottom}>
@@ -356,7 +378,7 @@ function UpcomingCard({
           <Icon name="chevron" size={13} weight="semibold" color={c.tertiaryLabel} />
         )}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -394,9 +416,37 @@ function PastRow({
         <Icon name="arrived" size={13} color={c.tertiaryLabel} />
       ) : null}
       <Text style={s.pastMeta}>
-        {formatShortDate(run.startsAt).toUpperCase()} · {people.length} WENT
+        {formatShortDate(run.startsAt)} · {people.length} went
       </Text>
     </Pressable>
+  );
+}
+
+/**
+ * First load: the shape of a live card and two upcoming ones, so the list
+ * lands in place instead of replacing a spinner.
+ */
+function RunListSkeleton() {
+  const s = useStyles();
+  return (
+    <Skeleton label="Loading runs" style={s.content}>
+      <SkeletonBlock style={s.skEyebrow} />
+      <View style={[s.card, s.skCard]}>
+        <SkeletonBlock style={s.skBadge} />
+        <SkeletonBlock style={s.skTitle} />
+        <SkeletonBlock style={s.skLine} />
+        <SkeletonBlock style={s.skTally} />
+        <SkeletonBlock style={s.skButton} />
+      </View>
+      <SkeletonBlock style={[s.skEyebrow, s.skEyebrowGap]} />
+      {[0, 1].map((i) => (
+        <View key={i} style={[s.card, s.skCard, i > 0 && s.skCardGap]}>
+          <SkeletonBlock style={s.skName} />
+          <SkeletonBlock style={s.skLine} />
+          <SkeletonBlock style={s.skAvatars} />
+        </View>
+      ))}
+    </Skeleton>
   );
 }
 
@@ -454,7 +504,6 @@ const useStyles = makeStyles((c) => ({
   },
   wordmark: {
     ...type.display1,
-    textTransform: "uppercase",
     color: c.label,
     flex: 1,
   },
@@ -474,8 +523,14 @@ const useStyles = makeStyles((c) => ({
   itemGap: { height: spacing.m },
 
   // --- live hero ---
-  hero: { overflow: "hidden" },
+  hero: {
+    overflow: "hidden",
+    backgroundColor: c.surfaceLive,
+    borderWidth: 1,
+    borderColor: c.liveEdge,
+  },
   heroBody: { padding: spacing.l, gap: spacing.s },
+  heroBodyPressed: { opacity: 0.7 },
   heroTop: { flexDirection: "row", alignItems: "center", gap: spacing.s },
   heroStarted: { ...type.monoSmall, color: c.tertiaryLabel, flexShrink: 1 },
   heroName: { ...type.display2, color: c.label },
@@ -538,6 +593,19 @@ const useStyles = makeStyles((c) => ({
   },
   pastName: { ...type.bodyMedium, color: c.secondaryLabel, flex: 1 },
   pastMeta: { ...type.monoSmall, color: c.tertiaryLabel },
+
+  // --- loading skeleton ---
+  skCard: { gap: spacing.m },
+  skCardGap: { marginTop: spacing.m },
+  skEyebrow: { width: 96, height: 10, marginTop: spacing.s + 2, marginBottom: spacing.m },
+  skEyebrowGap: { marginTop: spacing.xl + spacing.s },
+  skBadge: { width: 48, height: 18 },
+  skTitle: { width: "72%", height: 24 },
+  skName: { width: "58%", height: 19 },
+  skLine: { width: "84%", height: 12 },
+  skTally: { width: 120, height: 26 },
+  skAvatars: { width: 104, height: 28, borderRadius: radius.pill },
+  skButton: { height: 50, borderRadius: radius.control, marginTop: spacing.xs },
 
   // --- shared ---
   route: { flexDirection: "row", alignItems: "center", gap: 6 },

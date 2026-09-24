@@ -208,7 +208,7 @@ export function LiveDock({
         <View style={s.cta} accessible={false}>
           <Icon name="map" size={16} color={c.onTint} />
           <Text style={s.ctaText} maxFontSizeMultiplier={1.3}>
-            MAP
+            Map
           </Text>
         </View>
       </Pressable>

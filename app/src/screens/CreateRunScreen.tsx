@@ -19,7 +19,6 @@ import DateTimePicker, {
 import { usePreventRemove } from "@react-navigation/native";
 import { useLayoutEffect, useRef, useState } from "react";
 import {
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -34,10 +33,12 @@ import { MAP_STYLE_DARK_URL, MAP_STYLE_URL } from "../config";
 import type { ScreenProps } from "../navigation/types";
 import {
   Button,
+  ErrorBanner,
   FieldTile,
   Segmented,
   TextField,
   confirmAction,
+  type ActionError,
 } from "../ui/components";
 import { haptic } from "../ui/haptics";
 import {
@@ -78,6 +79,7 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
   const scheme = useScheme();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
+  const [error, setError] = useState<ActionError | null>(null);
   const [pinMode, setPinMode] = useState<PlaceKind>("meetup");
   const [meetup, setMeetup] = useState<LatLng | null>(null);
   const [meetupLabel, setMeetupLabel] = useState("");
@@ -125,6 +127,7 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
   const submit = async () => {
     if (busy || !meetup || !valid) return;
     setBusy(true);
+    setError(null);
     try {
       const run = await createRun({
         name: name.trim(),
@@ -140,12 +143,13 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
       navigation.navigate("RunDetail", { runId: run.id });
     } catch (err) {
       haptic.error();
-      Alert.alert(
-        "Couldn't create the run",
-        err instanceof ApiError && err.network
-          ? "The server is unreachable. Try again when you're back online."
-          : "Something went wrong. Try again.",
-      );
+      setError({
+        title: "Couldn't create the run",
+        body:
+          err instanceof ApiError && err.network
+            ? "The server is unreachable. Try again when you're back online."
+            : "The server didn't accept it. Try again.",
+      });
       setBusy(false);
     }
   };
@@ -276,7 +280,7 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
             ) : null}
           </Map>
           <View style={s.mapHint} pointerEvents="none">
-            <Text style={s.mapHintText}>{mapHint.toUpperCase()}</Text>
+            <Text style={s.mapHintText}>{mapHint}</Text>
           </View>
         </View>
 
@@ -322,6 +326,7 @@ export default function CreateRunScreen({ navigation }: ScreenProps<"CreateRun">
       </ScrollView>
 
       <View style={[s.bottom, { paddingBottom: insets.bottom + spacing.m }]}>
+        <ErrorBanner error={error} />
         <Button
           title={busy ? "Creating…" : "Create run"}
           onPress={() => void submitRef.current()}
@@ -382,8 +387,7 @@ function Starts({
       <FieldTile
         label="Date"
         value={value
-          .toLocaleDateString(undefined, { day: "numeric", month: "short" })
-          .toUpperCase()}
+          .toLocaleDateString(undefined, { day: "numeric", month: "short" })}
         onPress={() => open("date")}
         accessibilityHint="Opens the date picker"
         style={s.flex}
@@ -417,7 +421,6 @@ const useStyles = makeStyles((c) => ({
   cancelText: { ...type.calloutSemi, color: c.tint },
   title: {
     ...type.display2,
-    textTransform: "uppercase",
     color: c.label,
     flex: 1,
     textAlign: "right",
@@ -449,9 +452,7 @@ const useStyles = makeStyles((c) => ({
     paddingVertical: 5,
   },
   mapHintText: {
-    ...type.eyebrow,
-    fontSize: 9.5,
-    letterSpacing: 1.3,
+    ...type.caption,
     color: c.label,
   },
 
@@ -480,6 +481,7 @@ const useStyles = makeStyles((c) => ({
   bottom: {
     paddingHorizontal: ROW_INSET,
     paddingTop: spacing.m,
+    gap: spacing.m,
     borderTopWidth: 0.5,
     borderTopColor: c.separator,
     backgroundColor: c.background,

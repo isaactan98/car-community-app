@@ -15,6 +15,9 @@ import {
   Children,
   cloneElement,
   isValidElement,
+  useEffect,
+  useRef,
+  useState,
   type ReactElement,
   type ReactNode,
   type Ref,
@@ -23,12 +26,16 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Linking,
   Platform,
   Pressable,
   Text,
   TextInput,
   View,
+  type ColorValue,
+  type PressableProps,
   type StyleProp,
   type TextInputProps,
   type TextStyle,
@@ -48,12 +55,129 @@ import {
   type,
   usePalette,
 } from "./theme";
+import { useReduceMotion } from "./useReduceMotion";
 
 /**
  * Hairline borders. 0.5 reads as a crisp line on every density we ship to,
  * and unlike StyleSheet.hairlineWidth it never rounds down to 0.
  */
 const HAIRLINE = 0.5;
+
+// ---------------------------------------------------------------------------
+// Press feedback
+// ---------------------------------------------------------------------------
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+/**
+ * A Pressable that gives under the thumb: it sinks a few percent on press and
+ * springs back on release, so a tap registers even when the eye is on the
+ * road. `pressedStyle` layers on top while held. Settles instantly under
+ * Reduce Motion.
+ *
+ * Style is static (not a function of `pressed`) because an animated
+ * transform has to reach an Animated view unprocessed.
+ */
+export function PressableScale({
+  style,
+  pressedStyle,
+  scaleTo = 0.97,
+  onPressIn,
+  onPressOut,
+  children,
+  ...rest
+}: Omit<PressableProps, "style" | "children"> & {
+  style?: StyleProp<ViewStyle>;
+  pressedStyle?: StyleProp<ViewStyle>;
+  scaleTo?: number;
+  children?: ReactNode;
+}) {
+  const reduce = useReduceMotion();
+  const scale = useState(() => new Animated.Value(1))[0];
+  const [pressed, setPressed] = useState(false);
+
+  const to = (value: number, bounciness: number) => {
+    if (reduce) {
+      scale.setValue(1);
+      return;
+    }
+    Animated.spring(scale, {
+      toValue: value,
+      speed: 40,
+      bounciness,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <AnimatedPressable
+      {...rest}
+      onPressIn={(e) => {
+        setPressed(true);
+        to(scaleTo, 0);
+        onPressIn?.(e);
+      }}
+      onPressOut={(e) => {
+        setPressed(false);
+        to(1, 6);
+        onPressOut?.(e);
+      }}
+      style={[style, pressed && pressedStyle, { transform: [{ scale }] }]}
+    >
+      {children}
+    </AnimatedPressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Entrance
+// ---------------------------------------------------------------------------
+
+/** Past this many steps the cascade stops adding delay, so a long list never waits. */
+const STAGGER_CAP = 6;
+const STAGGER_MS = 55;
+
+/**
+ * Content arriving on a screen: rises a few points and fades in, each block a
+ * beat after the one above, so the page assembles top-down instead of
+ * snapping in. Plays once, on mount — data refreshes re-render children but
+ * never replay it. Under Reduce Motion it only fades, with no travel or delay.
+ */
+export function FadeIn({
+  index = 0,
+  children,
+  style,
+}: {
+  /** Position in the cascade; 0 starts immediately. */
+  index?: number;
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const reduce = useReduceMotion();
+  const progress = useState(() => new Animated.Value(0))[0];
+  useEffect(() => {
+    const anim = Animated.timing(progress, {
+      toValue: 1,
+      duration: reduce ? 180 : 380,
+      delay: reduce ? 0 : Math.min(index, STAGGER_CAP) * STAGGER_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop();
+    // Mount-only by design: `index` shifting as a list grows must not replay.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const translateY = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [reduce ? 0 : 14, 0],
+  });
+  return (
+    <Animated.View style={[style, { opacity: progress, transform: [{ translateY }] }]}>
+      {children}
+    </Animated.View>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Buttons
@@ -99,14 +223,16 @@ export function Button({
   const inactive = disabled || loading;
   const iconSize = size === "large" ? 18 : 15;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
       onPress={onPress}
       disabled={inactive}
-      style={({ pressed }) => [
+      scaleTo={role === "plain" ? 0.94 : 0.97}
+      pressedStyle={{ opacity: 0.82 }}
+      style={[
         s.button,
         size === "large" && s.buttonLarge,
         size === "regular" && s.buttonRegular,
@@ -114,7 +240,7 @@ export function Button({
         role === "filled" && s.buttonFilled,
         (role === "tinted" || role === "destructive") && s.buttonTinted,
         role === "plain" && s.buttonPlain,
-        { opacity: disabled ? 0.35 : pressed ? 0.7 : 1 },
+        { opacity: disabled ? 0.35 : 1 },
         style,
       ]}
     >
@@ -130,7 +256,7 @@ export function Button({
       >
         {title}
       </Text>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -457,7 +583,7 @@ export function TextField({
     <View style={[s.field, containerStyle]}>
       <View style={s.fieldMain}>
         <Text style={s.fieldLabel} numberOfLines={1}>
-          {label.toUpperCase()}
+          {label}
         </Text>
         <TextInput
           ref={ref}
@@ -507,7 +633,7 @@ export function FieldTile({
       ]}
     >
       <View style={s.fieldMain}>
-        <Text style={s.fieldLabel}>{label.toUpperCase()}</Text>
+        <Text style={s.fieldLabel}>{label}</Text>
         <Text style={s.fieldValueMono} numberOfLines={1}>
           {value}
         </Text>
@@ -571,6 +697,7 @@ export function AvatarStack({
   selfIndex,
   max = 4,
   caption,
+  ringColor,
 }: {
   names: string[];
   /** Index of the current user, drawn in the accent. */
@@ -578,6 +705,8 @@ export function AvatarStack({
   max?: number;
   /** Trailing text, e.g. "+8 going". */
   caption?: string;
+  /** The surface the stack sits on, when it isn't the plain card surface. */
+  ringColor?: ColorValue;
 }) {
   const s = useStyles();
   const shown = names.slice(0, max);
@@ -591,7 +720,11 @@ export function AvatarStack({
           name={name}
           size={28}
           state={i === selfIndex ? "self" : "default"}
-          style={[s.stackAvatar, i > 0 && s.stackAvatarOverlap]}
+          style={[
+            s.stackAvatar,
+            ringColor !== undefined && { borderColor: ringColor },
+            i > 0 && s.stackAvatarOverlap,
+          ]}
         />
       ))}
       {label ? <Text style={s.stackCaption}>{label}</Text> : null}
@@ -652,7 +785,7 @@ export function InlineBanner({
   onAction,
 }: {
   icon: IconName;
-  tone: "success" | "warning" | "neutral";
+  tone: "success" | "warning" | "error" | "neutral";
   title: string;
   body?: string;
   actionLabel?: string;
@@ -661,11 +794,18 @@ export function InlineBanner({
   const s = useStyles();
   const c = usePalette();
   const accent =
-    tone === "success" ? c.green : tone === "warning" ? c.yellow : c.secondaryLabel;
+    tone === "success"
+      ? c.green
+      : tone === "warning"
+        ? c.yellow
+        : tone === "error"
+          ? c.destructive
+          : c.secondaryLabel;
   return (
     <View
       style={[s.banner, { borderLeftColor: accent }]}
-      accessibilityRole={tone === "warning" ? "alert" : undefined}
+      accessibilityRole={tone === "warning" || tone === "error" ? "alert" : undefined}
+      accessibilityLiveRegion={tone === "error" ? "assertive" : undefined}
     >
       <Icon name={icon} size={20} color={accent} />
       <View style={s.bannerText}>
@@ -676,6 +816,34 @@ export function InlineBanner({
         <Button title={actionLabel} role="plain" size="small" onPress={onAction} />
       ) : null}
     </View>
+  );
+}
+
+/** A failed action, said where it happened rather than in a modal alert. */
+export interface ActionError {
+  title: string;
+  body?: string;
+}
+
+export function ErrorBanner({
+  error,
+  actionLabel,
+  onAction,
+}: {
+  error: ActionError | null;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  if (!error) return null;
+  return (
+    <InlineBanner
+      icon="warning"
+      tone="error"
+      title={error.title}
+      body={error.body}
+      actionLabel={actionLabel}
+      onAction={onAction}
+    />
   );
 }
 
@@ -708,11 +876,39 @@ export function OfflineBanner({
   );
 }
 
+/**
+ * A slow breathing loop, 1 → `low` → 1. Rests at 1 under Reduce Motion.
+ * Drive opacity with it; it runs on the native thread.
+ */
+function useBreath(low: number, halfPeriodMs: number): Animated.Value {
+  const reduce = useReduceMotion();
+  const value = useState(() => new Animated.Value(1))[0];
+  useEffect(() => {
+    if (reduce) {
+      value.setValue(1);
+      return;
+    }
+    const half = (toValue: number) =>
+      Animated.timing(value, {
+        toValue,
+        duration: halfPeriodMs,
+        easing: Easing.inOut(Easing.sin),
+        useNativeDriver: true,
+      });
+    const loop = Animated.loop(Animated.sequence([half(low), half(1)]));
+    loop.start();
+    return () => loop.stop();
+  }, [reduce, value, low, halfPeriodMs]);
+  return value;
+}
+
+/** The dot breathes: the one bit of motion that means "this is happening now". */
 export function LiveBadge({ style }: { style?: StyleProp<ViewStyle> }) {
   const s = useStyles();
+  const pulse = useBreath(0.2, 800);
   return (
     <View style={[s.live, style]} accessible accessibilityLabel="Live">
-      <View style={s.liveDot} />
+      <Animated.View style={[s.liveDot, { opacity: pulse }]} />
       <Text style={s.liveText} maxFontSizeMultiplier={1.3}>
         LIVE
       </Text>
@@ -729,6 +925,39 @@ export function Loading({ label }: { label?: string }) {
       {label ? <Text style={s.loadingText}>{label}</Text> : null}
     </View>
   );
+}
+
+/**
+ * Placeholder layout while the first load is in flight. Children are drawn
+ * with SkeletonBlock in the shape of the real content, so nothing jumps when
+ * it arrives; the whole group breathes as one.
+ */
+export function Skeleton({
+  label,
+  children,
+  style,
+}: {
+  /** Read to screen readers in place of the placeholder shapes. */
+  label: string;
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const pulse = useBreath(0.45, 700);
+  return (
+    <Animated.View
+      style={[style, { opacity: pulse }]}
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={label}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+export function SkeletonBlock({ style }: { style?: StyleProp<ViewStyle> }) {
+  const s = useStyles();
+  return <View style={[s.skeletonBlock, style]} />;
 }
 
 export function EmptyState({
@@ -827,15 +1056,41 @@ export function ArrivalDots({
       accessibilityElementsHidden
     >
       {Array.from({ length: total }, (_, i) => (
-        <View
-          key={i}
-          style={[
-            { width: size, height: size, borderRadius: size / 2 },
-            i < arrived ? s.dotOn : s.dotOff,
-          ]}
-        />
+        <ArrivalDot key={i} on={i < arrived} size={size} />
       ))}
     </View>
+  );
+}
+
+/**
+ * One dot. Filling in is the moment someone arrives, so it pops — but only on
+ * the change, never on first draw, or every screen open would be a fanfare.
+ */
+function ArrivalDot({ on, size }: { on: boolean; size: number }) {
+  const s = useStyles();
+  const reduce = useReduceMotion();
+  const scale = useState(() => new Animated.Value(1))[0];
+  const was = useRef(on);
+  useEffect(() => {
+    if (on && !was.current && !reduce) {
+      scale.setValue(0.3);
+      Animated.spring(scale, {
+        toValue: 1,
+        friction: 4,
+        tension: 160,
+        useNativeDriver: true,
+      }).start();
+    }
+    was.current = on;
+  }, [on, reduce, scale]);
+  return (
+    <Animated.View
+      style={[
+        { width: size, height: size, borderRadius: size / 2 },
+        on ? s.dotOn : s.dotOff,
+        { transform: [{ scale }] },
+      ]}
+    />
   );
 }
 
@@ -910,8 +1165,8 @@ const useStyles = makeStyles((c) => ({
   buttonFilled: { backgroundColor: c.tint },
   buttonTinted: { backgroundColor: c.fill },
   buttonPlain: { paddingHorizontal: spacing.s, minHeight: TOUCH_MIN },
-  buttonText: { ...type.button, ...uppercase },
-  buttonTextSmall: { ...type.buttonSmall, ...uppercase },
+  buttonText: type.button,
+  buttonTextSmall: type.buttonSmall,
 
   card: {
     backgroundColor: c.surface,
@@ -988,7 +1243,7 @@ const useStyles = makeStyles((c) => ({
     minHeight: 62,
   },
   fieldMain: { flex: 1, gap: 2 },
-  fieldLabel: { ...type.eyebrow, color: c.tertiaryLabel },
+  fieldLabel: { ...type.footnoteSemi, color: c.secondaryLabel },
   fieldInput: { ...type.bodyMedium, color: c.label, padding: 0 },
   fieldInputMono: { ...type.mono, fontSize: 16, lineHeight: 21, color: c.label },
   fieldInputHero: { ...type.display3, color: c.label },
@@ -1097,13 +1352,14 @@ const useStyles = makeStyles((c) => ({
   },
   emptyTitle: {
     ...type.display3,
-    ...uppercase,
     color: c.label,
     textAlign: "center",
     marginTop: spacing.m,
   },
   emptyBody: { ...type.callout, color: c.secondaryLabel, textAlign: "center" },
   emptyAction: { marginTop: spacing.l },
+
+  skeletonBlock: { backgroundColor: c.fill, borderRadius: radius.chip + 1 },
 
   segment: {
     flexDirection: "row",

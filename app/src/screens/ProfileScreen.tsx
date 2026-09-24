@@ -11,7 +11,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -34,13 +33,16 @@ import {
   Avatar,
   Button,
   Card,
+  ErrorBanner,
   Eyebrow,
+  FadeIn,
   InlineBanner,
   Loading,
   Plate,
   Segmented,
   TextField,
   confirmAction,
+  type ActionError,
 } from "../ui/components";
 import { APPEARANCE_OPTIONS, useAppearance, type AppearanceMode } from "../ui/appearance";
 import { haptic } from "../ui/haptics";
@@ -116,6 +118,7 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [garageError, setGarageError] = useState<ActionError | null>(null);
 
   const load = useCallback(
     () =>
@@ -139,6 +142,7 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
     const trimmed = name.trim();
     if (trimmed.length === 0 || busy) return;
     setBusy(true);
+    setGarageError(null);
     try {
       await addCar(trimmed);
       haptic.success();
@@ -146,7 +150,10 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
       await load();
     } catch {
       haptic.error();
-      Alert.alert("Couldn't add car", "The server is unreachable or rejected it.");
+      setGarageError({
+        title: `Couldn't add ${trimmed}`,
+        body: "The server is unreachable or rejected it.",
+      });
     } finally {
       setBusy(false);
     }
@@ -161,12 +168,16 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
     });
     if (!ok) return;
     setBusy(true);
+    setGarageError(null);
     try {
       await deleteCar(car.id);
       await load();
     } catch {
       haptic.error();
-      Alert.alert("Couldn't remove car", "Check your connection and try again.");
+      setGarageError({
+        title: `Couldn't remove ${car.name}`,
+        body: "Check your connection and try again.",
+      });
     } finally {
       setBusy(false);
     }
@@ -194,18 +205,18 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
       keyboardShouldPersistTaps="handled"
       automaticallyAdjustKeyboardInsets
     >
-      <View style={s.identity}>
+      <FadeIn index={0} style={s.identity}>
         <Avatar name={member?.displayName ?? "?"} size={62} state="self" />
         <View style={s.identityText}>
           <Text style={s.name} accessibilityRole="header" numberOfLines={2}>
             {member?.displayName ?? "Member"}
           </Text>
-          <Text style={s.caption}>MEMBER OF THE GROUP</Text>
+          <Text style={s.caption}>Member of the group</Text>
         </View>
-      </View>
+      </FadeIn>
 
       {offline ? (
-        <View style={s.block}>
+        <FadeIn index={1} style={s.block}>
           <InlineBanner
             icon="offline"
             tone="warning"
@@ -214,10 +225,10 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
             actionLabel="Retry"
             onAction={() => void load()}
           />
-        </View>
+        </FadeIn>
       ) : null}
 
-      <View style={s.block}>
+      <FadeIn index={2} style={s.block}>
         <Eyebrow title="Garage" count={cars.length} />
         <View style={s.grid}>
           {cars.map((car) => (
@@ -250,6 +261,11 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
           </Pressable>
         </View>
 
+        {garageError ? (
+          <View style={s.garageError}>
+            <ErrorBanner error={garageError} />
+          </View>
+        ) : null}
         <TextField
           ref={addRef}
           label="Add a car"
@@ -273,9 +289,9 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
           Pick one of these when you join a run so the group knows what you&apos;re
           bringing. Press and hold a car to remove it.
         </Text>
-      </View>
+      </FadeIn>
 
-      <View style={s.block}>
+      <FadeIn index={3} style={s.block}>
         <Eyebrow title="Appearance" />
         <Segmented<AppearanceMode>
           options={APPEARANCE_OPTIONS}
@@ -286,9 +302,9 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
           Night is the default — most runs happen after dark, and a white screen in
           a moving car is worse than a dim one.
         </Text>
-      </View>
+      </FadeIn>
 
-      <View style={s.block}>
+      <FadeIn index={4} style={s.block}>
         <Eyebrow title="Privacy" />
         <Card style={s.privacy}>
           <View style={s.privacyTop}>
@@ -303,9 +319,9 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
             ever recorded.
           </Text>
         </Card>
-      </View>
+      </FadeIn>
 
-      <View style={s.block}>
+      <FadeIn index={5} style={s.block}>
         <Eyebrow title="Connection" />
         <Card style={s.diag}>
           <DiagRow label="Server" value={diag.serverUrl} />
@@ -349,9 +365,9 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
           compiled against — if it isn&apos;t the one you expect, the app was built
           without EXPO_PUBLIC_SERVER_URL set. No location data appears here.
         </Text>
-      </View>
+      </FadeIn>
 
-      <View style={s.block}>
+      <FadeIn index={6} style={s.block}>
         <Eyebrow title="Location" />
         <Card style={s.diag}>
           <DiagRow
@@ -384,7 +400,7 @@ export default function ProfileScreen({ navigation }: ScreenProps<"Profile">) {
           &quot;Collecting&quot; is running, the phone has not got a satellite lock:
           go outside, away from a roof. Counts and timings only; no coordinates.
         </Text>
-      </View>
+      </FadeIn>
 
       <Button
         title="Leave the group on this phone"
@@ -412,7 +428,7 @@ const useStyles = makeStyles((c) => ({
   },
   identityText: { flex: 1, gap: 2 },
   name: { ...type.display1, color: c.label },
-  caption: { ...type.monoSmall, color: c.tertiaryLabel },
+  caption: { ...type.footnote, color: c.secondaryLabel },
 
   block: { marginBottom: spacing.xxl, gap: spacing.m },
 
@@ -444,6 +460,7 @@ const useStyles = makeStyles((c) => ({
   },
   addText: { ...type.calloutSemi, color: c.secondaryLabel },
   addField: { marginTop: spacing.xs },
+  garageError: { marginTop: spacing.m },
 
   hint: { ...type.footnote, color: c.tertiaryLabel, paddingHorizontal: spacing.xs },
 

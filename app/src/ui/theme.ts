@@ -62,6 +62,14 @@ export interface Palette {
   onTint: ColorValue;
   /** Faint tint wash, for accent chips and selected states. */
   accentSoft: ColorValue;
+  /**
+   * Ground of the one card for a run happening right now: the surface with a
+   * breath of sodium in it (8% night, 5% day), opaque so text contrast stays
+   * computable. Labels on it measure within 0.5:1 of the plain surface.
+   */
+  surfaceLive: ColorValue;
+  /** Edge of the live card. */
+  liveEdge: ColorValue;
   /** Destructive text. */
   destructive: ColorValue;
   /** Signal green — arrived, live, sharing. */
@@ -88,6 +96,12 @@ export interface Palette {
   mapBackground: ColorValue;
   /** Translucent panel for the live dock and the map sheet. */
   glass: ColorValue;
+  /**
+   * Shadow ink. Tinted with the ground's own hue rather than pure black, so
+   * a floating panel looks like it belongs to the palette instead of sitting
+   * on a grey smudge. Every shadow falls straight down: one light, overhead.
+   */
+  shadow: ColorValue;
 }
 
 const palettes: Record<Scheme, Palette> = {
@@ -105,6 +119,8 @@ const palettes: Record<Scheme, Palette> = {
     tint: "#FF7A1A",
     onTint: "#150A02",
     accentSoft: "rgba(255,122,26,0.14)",
+    surfaceLive: "#282120",
+    liveEdge: "rgba(255,122,26,0.42)",
     destructive: "#FF6259",
     green: "#3FD98B",
     blue: "#5AA9FF",
@@ -117,6 +133,7 @@ const palettes: Record<Scheme, Palette> = {
     mapRouteCasing: "rgba(8,10,14,0.65)",
     mapBackground: "#0E1218",
     glass: "rgba(21,25,32,0.92)",
+    shadow: "#02040A",
   },
   day: {
     background: "#EDEFF3",
@@ -132,6 +149,8 @@ const palettes: Record<Scheme, Palette> = {
     tint: "#C2500A",
     onTint: "#FFFFFF",
     accentSoft: "rgba(194,80,10,0.10)",
+    surfaceLive: "#FCF6F3",
+    liveEdge: "rgba(194,80,10,0.32)",
     destructive: "#C42B22",
     green: "#128A52",
     blue: "#1667D6",
@@ -144,6 +163,7 @@ const palettes: Record<Scheme, Palette> = {
     mapRouteCasing: "rgba(255,255,255,0.85)",
     mapBackground: "#E4E8EE",
     glass: "rgba(255,255,255,0.94)",
+    shadow: "#1B2A40",
   },
 };
 
@@ -231,25 +251,29 @@ export const type = {
   },
   /** Navigation bar titles, prominent rows. */
   title: { fontFamily: font.displayBold, fontSize: 17, lineHeight: 22 },
-  /** Uppercase section labels. Callers add textTransform. */
+  /**
+   * Section labels — the one sentence-free place capitals stay (callers add
+   * textTransform), alongside plates, LIVE and map signage. Everything a
+   * person reads as words is sentence case: it scans faster at a glance.
+   */
   eyebrow: {
     fontFamily: font.displayBold,
     fontSize: 11,
     lineHeight: 14,
     letterSpacing: 1.9,
   },
-  /** Uppercase button labels. Callers add textTransform. */
+  /** Sentence-case button labels. */
   button: {
     fontFamily: font.displayBold,
-    fontSize: 15,
-    lineHeight: 18,
-    letterSpacing: 0.9,
+    fontSize: 16,
+    lineHeight: 20,
+    letterSpacing: 0.1,
   },
   buttonSmall: {
     fontFamily: font.displayBold,
-    fontSize: 12,
-    lineHeight: 15,
-    letterSpacing: 0.8,
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.15,
   },
   body: { fontFamily: font.body, fontSize: 16, lineHeight: 22 },
   bodyMedium: { fontFamily: font.bodyMedium, fontSize: 16, lineHeight: 22 },
@@ -323,14 +347,15 @@ export const DOCK_HEIGHT = 64;
  */
 export function elevation(scheme: Scheme, level: 1 | 2 = 1): ViewStyle {
   const dark = scheme === "night";
-  const opacity = dark ? (level === 1 ? 0.45 : 0.6) : level === 1 ? 0.12 : 0.18;
+  const opacity = dark ? (level === 1 ? 0.5 : 0.65) : level === 1 ? 0.14 : 0.2;
   return Platform.select<ViewStyle>({
     ios: {
-      shadowColor: "#000000",
+      shadowColor: palettes[scheme].shadow,
       shadowOpacity: opacity,
       shadowRadius: level === 1 ? 12 : 24,
       shadowOffset: { width: 0, height: level === 1 ? 4 : 10 },
     },
-    default: { elevation: level === 1 ? 6 : 14 },
+    // Android 9+ tints elevation shadows with shadowColor too.
+    default: { elevation: level === 1 ? 6 : 14, shadowColor: palettes[scheme].shadow },
   }) as ViewStyle;
 }
