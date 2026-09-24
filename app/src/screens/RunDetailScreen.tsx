@@ -363,6 +363,12 @@ export default function RunDetailScreen({
   }, [state.snapshot, run]);
 
   const counts = runLegCounts(run);
+  // The convoy is in: everyone still on the run is at the destination.
+  const everyoneHere =
+    run?.state === "active" &&
+    counts.leg === "destination" &&
+    counts.total > 0 &&
+    counts.there === counts.total;
   const myRow = rows.find((r) => r.memberId === selfId) ?? null;
   // My leg, not the group's: a straggler still driving to the meetup is on
   // leg 1 however far ahead the rest of the convoy is.
@@ -531,6 +537,7 @@ export default function RunDetailScreen({
       </View>
     );
   } else if (active) {
+    const atLastStop = myLeg === "destination" && atMyTarget;
     primary = (
       <View style={s.primary}>
         <LegBanner
@@ -538,10 +545,17 @@ export default function RunDetailScreen({
           leg={myLeg}
           atTarget={atMyTarget}
           groupHasLeft={counts.leg === "destination"}
+          everyoneHere={everyoneHere}
         />
+        {everyoneHere && isCreator ? (
+          // The one action left once the convoy is in. The sweep ends it in
+          // 10 min anyway; this is for the host who wants sharing off now.
+          <Button title="End run now" icon="destination" onPress={doEnd} loading={busy} />
+        ) : null}
         <Button
           title="Open live map"
           icon="map"
+          role={atLastStop ? "tinted" : "filled"}
           onPress={() => navigation.navigate("LiveMap", { runId })}
         />
         {sharing === true && !foregroundOnly ? (
@@ -554,7 +568,9 @@ export default function RunDetailScreen({
               title="Waiting for a GPS lock"
               body="Sharing is on, but your phone hasn't got a fix yet. Outdoors it takes a moment; indoors it may not come at all."
             />
-          ) : (
+          ) : atLastStop ? null : (
+            // At the last stop the arrival banner already says sharing is on
+            // and when it stops; only a problem with sharing earns a second one.
             <InlineBanner
               icon="sharing"
               tone="success"
@@ -648,7 +664,11 @@ export default function RunDetailScreen({
                 kind="destination"
                 place={run.destination}
                 state={
-                  !active ? "idle" : myLeg === "destination" ? "current" : "idle"
+                  !active || myLeg !== "destination"
+                    ? "idle"
+                    : atMyTarget
+                      ? "done"
+                      : "current"
                 }
               />
             </>
@@ -856,12 +876,15 @@ function LegBanner({
   leg,
   atTarget,
   groupHasLeft,
+  everyoneHere,
 }: {
   run: Run;
   leg: Leg;
   atTarget: boolean;
   /** The group as a whole has moved off, whatever this member is doing. */
   groupHasLeft: boolean;
+  /** Every member still on the run is at the destination. */
+  everyoneHere: boolean;
 }) {
   const s = useStyles();
   const destination = run.destination;
@@ -871,8 +894,16 @@ function LegBanner({
       <InlineBanner
         icon="destination"
         tone="success"
-        title={`You've reached ${destination?.label ?? "the destination"}`}
-        body="Sharing stops when the run ends."
+        title={
+          everyoneHere
+            ? `Everyone's at ${destination?.label ?? "the destination"}`
+            : `You've reached ${destination?.label ?? "the destination"}`
+        }
+        body={
+          everyoneHere
+            ? "The run ends and sharing stops by itself within 10 min."
+            : "Still sharing your location. The run ends 10 min after everyone's here."
+        }
       />
     ) : (
       <View style={s.legBanner}>

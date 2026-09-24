@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS run_attendees (
   status         TEXT NOT NULL DEFAULT 'rsvped'
                    CHECK (status IN ('rsvped','arrived','left')),
   at_destination INTEGER NOT NULL DEFAULT 0,
+  -- epoch ms at_destination flipped to 1; drives the "everyone's there" auto-end.
+  at_destination_at INTEGER,
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (run_id, member_id)
 );
@@ -119,6 +121,12 @@ function migrate(db: DB): void {
     // Nullable with no default: an existing run simply has no route yet, and
     // the first live map to open it fills one in.
     db.exec('ALTER TABLE runs ADD COLUMN route_json TEXT');
+  }
+  if (!hasColumn('run_attendees', 'at_destination_at')) {
+    // NULL for members who reached the destination before this column existed:
+    // the sweep reads that as "long ago", so a run already sitting at its
+    // destination ends on the first sweep after deploy rather than never.
+    db.exec('ALTER TABLE run_attendees ADD COLUMN at_destination_at INTEGER');
   }
 }
 

@@ -97,11 +97,14 @@ function aheadLine(
 export function LiveDock({
   selfId,
   hidden,
+  hiddenForRunId,
   onOpen,
 }: {
   selfId: string;
   /** True on the map itself and on modal presentations. */
   hidden: boolean;
+  /** Hide while this run's own detail screen is showing. */
+  hiddenForRunId?: string;
   onOpen: (runId: string) => void;
 }) {
   const s = useStyles();
@@ -156,7 +159,7 @@ export function LiveDock({
     });
   }, [adoptRun, clear]);
 
-  if (!data || hidden) return null;
+  if (!data || hidden || data.runId === hiddenForRunId) return null;
 
   const { arrived, total } = counts(data.members);
   const name = data.run?.name ?? "Live run";

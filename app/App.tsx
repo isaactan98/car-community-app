@@ -118,6 +118,15 @@ function ThemedApp() {
   const fontsReady = useAppFonts();
   const navRef = useNavigationContainerRef<RootStackParamList>();
   const [routeName, setRouteName] = useState<string | undefined>(undefined);
+  // The run the current screen is about, so the dock can step aside on that
+  // run's own detail screen, which already says everything the dock does.
+  const [routeRunId, setRouteRunId] = useState<string | undefined>(undefined);
+  const trackRoute = () => {
+    const current = navRef.getCurrentRoute();
+    setRouteName(current?.name);
+    const params = current?.params as { runId?: unknown } | undefined;
+    setRouteRunId(typeof params?.runId === "string" ? params.runId : undefined);
+  };
 
   // Hold the app until fonts resolve. useAppFonts() also resolves on failure,
   // so a missing font degrades to the system face instead of a dead splash.
@@ -137,8 +146,8 @@ function ThemedApp() {
       <StatusBar style={scheme === "night" ? "light" : "dark"} />
       <NavigationContainer
         ref={navRef}
-        onReady={() => setRouteName(navRef.getCurrentRoute()?.name)}
-        onStateChange={() => setRouteName(navRef.getCurrentRoute()?.name)}
+        onReady={trackRoute}
+        onStateChange={trackRoute}
         theme={{
           ...base,
           colors: {
@@ -162,6 +171,7 @@ function ThemedApp() {
         <LiveDock
           selfId={member.id}
           hidden={routeName !== undefined && DOCK_HIDDEN_ROUTES.has(routeName)}
+          hiddenForRunId={routeName === "RunDetail" ? routeRunId : undefined}
           onOpen={(runId) => navRef.navigate("LiveMap", { runId })}
         />
       ) : null}
