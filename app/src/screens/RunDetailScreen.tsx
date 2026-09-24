@@ -62,7 +62,9 @@ import {
   Button,
   Card,
   EmptyState,
+  ErrorBanner,
   Eyebrow,
+  FadeIn,
   InlineBanner,
   LiveBadge,
   Loading,
@@ -70,6 +72,7 @@ import {
   Plate,
   WazeButton,
   confirmAction,
+  type ActionError,
 } from "../ui/components";
 import { haptic } from "../ui/haptics";
 import { Icon } from "../ui/Icon";
@@ -207,6 +210,11 @@ export default function RunDetailScreen({
   const now = useNow(10_000);
   const [state, dispatch] = useReducer(liveRunReducer, initialLiveRunState);
   const [busy, setBusy] = useState(false);
+  // A failed start/leave/end, shown beside the control that failed: start in
+  // the action block up top, leave and end in the footer.
+  const [actionError, setActionError] = useState<
+    (ActionError & { where: "top" | "footer" }) | null
+  >(null);
   // True when we're sharing but only in the foreground (background permission
   // not granted) — drives the battery/permission help link (A6/A7).
   const [foregroundOnly, setForegroundOnly] = useState(false);
@@ -402,6 +410,7 @@ export default function RunDetailScreen({
     });
     if (!ok) return;
     setBusy(true);
+    setActionError(null);
     try {
       // Privacy hard stop first (R7) — even if the request then fails, we
       // are no longer sharing.
@@ -410,12 +419,14 @@ export default function RunDetailScreen({
       await load();
     } catch (err) {
       haptic.error();
-      Alert.alert(
-        "Couldn't leave the run",
-        err instanceof ApiError && err.network
-          ? "The server is unreachable — you've stopped sharing your location either way."
-          : "Try again.",
-      );
+      setActionError({
+        where: "footer",
+        title: "Couldn't leave the run",
+        body:
+          err instanceof ApiError && err.network
+            ? "The server is unreachable — you've stopped sharing your location either way."
+            : "The server didn't accept it. Try again.",
+      });
     } finally {
       setBusy(false);
     }
@@ -430,13 +441,18 @@ export default function RunDetailScreen({
     });
     if (!ok) return;
     setBusy(true);
+    setActionError(null);
     try {
       await startRun(runId);
       haptic.success();
       await load();
     } catch {
       haptic.error();
-      Alert.alert("Couldn't start the run", "Check your connection and try again.");
+      setActionError({
+        where: "top",
+        title: "Couldn't start the run",
+        body: "Check your connection and try again.",
+      });
     } finally {
       setBusy(false);
     }
@@ -451,13 +467,18 @@ export default function RunDetailScreen({
     });
     if (!ok) return;
     setBusy(true);
+    setActionError(null);
     try {
       await endRun(runId);
       if (activeSessionRunId() === runId) await stopLiveSession();
       await load();
     } catch {
       haptic.error();
-      Alert.alert("Couldn't end the run", "Check your connection and try again.");
+      setActionError({
+        where: "footer",
+        title: "Couldn't end the run",
+        body: "Check your connection and try again. Location sharing is still on.",
+      });
     } finally {
       setBusy(false);
     }
@@ -586,7 +607,7 @@ export default function RunDetailScreen({
         </View>
       ) : null}
 
-      <View style={s.hero}>
+      <FadeIn index={0} style={s.hero}>
         <View style={s.heroTop}>
           {active ? (
             <LiveBadge />
@@ -596,74 +617,79 @@ export default function RunDetailScreen({
             </Text>
           )}
           <Text style={s.heroWhen} numberOfLines={1}>
-            {formatWhen(run.startsAt, now).toUpperCase()}
-            {isCreator ? " · YOUR RUN" : ""}
+            {formatWhen(run.startsAt, now)}
+            {isCreator ? " · your run" : ""}
           </Text>
         </View>
         <Text style={s.title} accessibilityRole="header" maxFontSizeMultiplier={1.8}>
           {run.name}
         </Text>
-      </View>
+      </FadeIn>
 
-      <Card style={s.route}>
-        <PlaceLeg
-          kind="meetup"
-          place={run.meetup}
-          state={
-            !active || !run.destination
-              ? "idle"
-              : myLeg === "meetup"
-                ? "current"
-                : "done"
-          }
-        />
-        {run.destination ? (
-          <>
-            <View style={s.legConnector}>
-              <View style={s.legLine} />
-            </View>
-            <PlaceLeg
-              kind="destination"
-              place={run.destination}
-              state={
-                !active ? "idle" : myLeg === "destination" ? "current" : "idle"
-              }
-            />
-          </>
-        ) : null}
-      </Card>
+      <FadeIn index={1}>
+        <Card style={s.route}>
+          <PlaceLeg
+            kind="meetup"
+            place={run.meetup}
+            state={
+              !active || !run.destination
+                ? "idle"
+                : myLeg === "meetup"
+                  ? "current"
+                  : "done"
+            }
+          />
+          {run.destination ? (
+            <>
+              <View style={s.legConnector}>
+                <View style={s.legLine} />
+              </View>
+              <PlaceLeg
+                kind="destination"
+                place={run.destination}
+                state={
+                  !active ? "idle" : myLeg === "destination" ? "current" : "idle"
+                }
+              />
+            </>
+          ) : null}
+        </Card>
+      </FadeIn>
 
       {run.state !== "upcoming" && counts.total > 0 ? (
-        <View
-          style={s.tally}
-          accessible
-          accessibilityRole="summary"
-          accessibilityLabel={`${counts.there} of ${counts.total} ${
-            counts.leg === "destination"
-              ? `at ${run.destination?.label || "the destination"}`
-              : run.state === "ended"
-                ? "checked in"
-                : "arrived at the meetup"
-          }`}
-        >
-          <Text style={s.tallyNumber} allowFontScaling={false}>
-            {counts.there}
-            <Text style={s.tallyOf}>/{counts.total}</Text>
-          </Text>
-          <View style={s.tallyRight}>
-            <Text style={s.tallyLabel} numberOfLines={1}>
-              {counts.leg === "destination"
-                ? `At ${shortLabel(run.destination?.label ?? "", 16)}`
+        <FadeIn index={2}>
+          <View
+            style={s.tally}
+            accessible
+            accessibilityRole="summary"
+            accessibilityLabel={`${counts.there} of ${counts.total} ${
+              counts.leg === "destination"
+                ? `at ${run.destination?.label || "the destination"}`
                 : run.state === "ended"
-                  ? "Checked in"
-                  : "Arrived"}
+                  ? "checked in"
+                  : "arrived at the meetup"
+            }`}
+          >
+            <Text style={s.tallyNumber} allowFontScaling={false}>
+              {counts.there}
+              <Text style={s.tallyOf}>/{counts.total}</Text>
             </Text>
-            <ArrivalDots arrived={counts.there} total={counts.total} />
+            <View style={s.tallyRight}>
+              <Text style={s.tallyLabel} numberOfLines={1}>
+                {counts.leg === "destination"
+                  ? `At ${shortLabel(run.destination?.label ?? "", 16)}`
+                  : run.state === "ended"
+                    ? "Checked in"
+                    : "Arrived"}
+              </Text>
+              <ArrivalDots arrived={counts.there} total={counts.total} />
+            </View>
           </View>
-        </View>
+        </FadeIn>
       ) : null}
 
-      <View style={s.actions}>
+      <FadeIn index={3} style={s.actions}>
+        {actionError?.where === "top" ? <ErrorBanner error={actionError} /> : null}
         {primary}
         {isCreator && run.state === "upcoming" ? (
           <Button
@@ -674,21 +700,23 @@ export default function RunDetailScreen({
             loading={busy}
           />
         ) : null}
-      </View>
+      </FadeIn>
 
       {joined && run.state !== "ended" ? (
-        <Pressable
-          onPress={openCarPicker}
-          accessibilityRole="button"
-          accessibilityLabel={`Your car, ${myAttendee?.carName ?? "none"}`}
-          accessibilityHint="Change the car you're bringing"
-          style={({ pressed }) => [s.carRow, pressed && { backgroundColor: c.highlight }]}
-        >
-          <Icon name="car" size={20} color={c.tint} />
-          <Text style={s.carLabel}>You&apos;re bringing</Text>
-          <Plate name={myAttendee?.carName ?? null} self />
-          <Icon name="chevron" size={13} weight="semibold" color={c.tertiaryLabel} />
-        </Pressable>
+        <FadeIn index={4}>
+          <Pressable
+            onPress={openCarPicker}
+            accessibilityRole="button"
+            accessibilityLabel={`Your car, ${myAttendee?.carName ?? "none"}`}
+            accessibilityHint="Change the car you're bringing"
+            style={({ pressed }) => [s.carRow, pressed && { backgroundColor: c.highlight }]}
+          >
+            <Icon name="car" size={20} color={c.tint} />
+            <Text style={s.carLabel}>You&apos;re bringing</Text>
+            <Plate name={myAttendee?.carName ?? null} self />
+            <Icon name="chevron" size={13} weight="semibold" color={c.tertiaryLabel} />
+          </Pressable>
+        </FadeIn>
       ) : null}
     </View>
   );
@@ -708,22 +736,28 @@ export default function RunDetailScreen({
       stickySectionHeadersEnabled={false}
       ListHeaderComponent={header}
       renderSectionHeader={({ section }) => (
-        <Eyebrow
-          title={section.title}
-          count={section.data.length}
-          style={s.sectionHeader}
-        />
+        <FadeIn index={5}>
+          <Eyebrow
+            title={section.title}
+            count={section.data.length}
+            style={s.sectionHeader}
+          />
+        </FadeIn>
       )}
       renderSectionFooter={() => <View style={s.sectionGap} />}
       renderItem={({ item, index, section }) => (
-        <RollCallRow
-          row={item}
-          isSelf={item.memberId === selfId}
-          runState={run.state}
-          leg={counts.leg}
-          first={index === 0}
-          last={index === section.data.length - 1}
-        />
+        // The roll call continues the header's cascade; the cap in FadeIn
+        // keeps a 40-car run from trickling in for seconds.
+        <FadeIn index={6 + index}>
+          <RollCallRow
+            row={item}
+            isSelf={item.memberId === selfId}
+            runState={run.state}
+            leg={counts.leg}
+            first={index === 0}
+            last={index === section.data.length - 1}
+          />
+        </FadeIn>
       )}
       ListEmptyComponent={
         <EmptyState
@@ -735,6 +769,9 @@ export default function RunDetailScreen({
       ListFooterComponent={
         canLeave || canEnd ? (
           <View style={s.footer}>
+            {actionError?.where === "footer" ? (
+              <ErrorBanner error={actionError} />
+            ) : null}
             {canLeave ? (
               <Button
                 title="Leave run"

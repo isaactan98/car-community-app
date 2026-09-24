@@ -131,7 +131,7 @@ const useStyles = makeStyles((c) => ({
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#FFFFFF",
-    shadowColor: "#000",
+    shadowColor: c.shadow,
     shadowOpacity: 0.3,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
@@ -148,7 +148,7 @@ const useStyles = makeStyles((c) => ({
   personWrap: { alignItems: "center", maxWidth: 124, padding: DOT_PAD },
   dot: {
     borderColor: "#FFFFFF",
-    shadowColor: "#000",
+    shadowColor: c.shadow,
     shadowOpacity: 0.35,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },

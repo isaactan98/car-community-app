@@ -203,7 +203,6 @@ const useStyles = makeStyles((c) => ({
   cancelText: { ...type.calloutSemi, color: c.tint },
   title: {
     ...type.display3,
-    textTransform: "uppercase",
     color: c.label,
     flex: 1,
     textAlign: "right",

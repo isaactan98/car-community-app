@@ -10,7 +10,7 @@ import {
 } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 // Importing the live session registers the background location task with
@@ -27,10 +27,11 @@ import RunDetailScreen from "./src/screens/RunDetailScreen";
 import RunListScreen from "./src/screens/RunListScreen";
 import { SessionProvider, useSession } from "./src/session/SessionContext";
 import { AppearanceProvider } from "./src/ui/appearance";
-import { Loading } from "./src/ui/components";
+import { FadeIn, Loading } from "./src/ui/components";
 import { useAppFonts } from "./src/ui/fonts";
 import { LiveDock } from "./src/ui/LiveDock";
 import { font, schemeHex, useScheme } from "./src/ui/theme";
+import { useReduceMotion } from "./src/ui/useReduceMotion";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -40,8 +41,20 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
  */
 const DOCK_HIDDEN_ROUTES = new Set(["LiveMap", "CreateRun", "CarPicker"]);
 
+/**
+ * How screens move, by what they are:
+ * - Pushes (run detail, profile) keep the platform's own slide — on iOS that
+ *   is the only one that carries the parallax and the interactive swipe back
+ *   — and take the swipe from anywhere on the screen, not just the edge.
+ *   Android gets the same iOS-style slide so both read as one app.
+ * - The live map rises into place: it's where the drive happens, not another
+ *   page beside the list.
+ * - Modal and sheet presentations keep their native motion.
+ * Under Reduce Motion everything becomes a short crossfade.
+ */
 function Navigator() {
   const hex = schemeHex(useScheme());
+  const reduce = useReduceMotion();
 
   const screenOptions: NativeStackNavigationOptions = {
     headerStyle: { backgroundColor: hex.background },
@@ -49,6 +62,12 @@ function Navigator() {
     headerShadowVisible: false,
     headerTitleStyle: { fontFamily: font.displayBold, fontSize: 17 },
     contentStyle: { backgroundColor: hex.background },
+    ...(reduce
+      ? { animation: "fade", animationDuration: 200 }
+      : {
+          animation: Platform.OS === "android" ? "ios_from_right" : "default",
+          fullScreenGestureEnabled: true,
+        }),
   };
 
   return (
@@ -64,7 +83,12 @@ function Navigator() {
       <Stack.Screen
         name="LiveMap"
         component={LiveMapScreen}
-        options={{ headerShown: false }}
+        options={{
+          headerShown: false,
+          // A full-screen swipe would fight the map's own panning.
+          fullScreenGestureEnabled: false,
+          ...(reduce ? null : { animation: "fade_from_bottom", animationDuration: 380 }),
+        }}
       />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: "" }} />
       <Stack.Screen
@@ -127,7 +151,11 @@ function ThemedApp() {
           },
         }}
       >
-        {signedIn ? <Navigator /> : <InviteScreen />}
+        {/* Keyed so joining the group crossfades into the app (and leaving
+            it fades back to the invite) instead of snapping. */}
+        <FadeIn key={signedIn ? "app" : "invite"} style={{ flex: 1 }}>
+          {signedIn ? <Navigator /> : <InviteScreen />}
+        </FadeIn>
       </NavigationContainer>
 
       {signedIn ? (
