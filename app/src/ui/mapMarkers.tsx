@@ -7,10 +7,13 @@
  * Use the exported anchor/offset props with <Marker> so the pin tip or dot
  * centre lands exactly on its coordinate.
  */
-import { Text, View, type ColorValue } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, Text, View, type ColorValue } from "react-native";
+
 
 import { Icon } from "./Icon";
 import { makeStyles, radius, type, usePalette } from "./theme";
+import { useReduceMotion } from "./useReduceMotion";
 
 export type PlaceKind = "meetup" | "destination";
 
@@ -82,9 +85,10 @@ export function PersonDot({
 }) {
   const s = useStyles();
   const size = dotSize(isSelf);
+  const pop = useSelectPop(!!selected);
   return (
     <View style={s.personWrap}>
-      <View
+      <Animated.View
         style={[
           s.dot,
           {
@@ -93,6 +97,7 @@ export function PersonDot({
             borderRadius: size / 2,
             backgroundColor: color,
             borderWidth: selected ? 3.5 : 2.5,
+            transform: [{ scale: pop }],
           },
         ]}
       />
@@ -106,6 +111,29 @@ export function PersonDot({
       </Text>
     </View>
   );
+}
+
+/**
+ * A quick pop when a dot becomes the selected one, so a tap on a moving
+ * map registers at a glance. Only on the change, never on first draw.
+ */
+function useSelectPop(selected: boolean): Animated.Value {
+  const reduce = useReduceMotion();
+  const scale = useState(() => new Animated.Value(1))[0];
+  const was = useRef(selected);
+  useEffect(() => {
+    if (selected && !was.current && !reduce) {
+      scale.setValue(0.7);
+      Animated.spring(scale, {
+        toValue: 1,
+        friction: 5,
+        tension: 180,
+        useNativeDriver: true,
+      }).start();
+    }
+    was.current = selected;
+  }, [selected, reduce, scale]);
+  return scale;
 }
 
 const useStyles = makeStyles((c) => ({

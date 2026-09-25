@@ -134,9 +134,13 @@ export function PressableScale({
 // Entrance
 // ---------------------------------------------------------------------------
 
-/** Past this many steps the cascade stops adding delay, so a long list never waits. */
+/**
+ * Past this many steps the cascade stops adding delay, so a long list never
+ * waits. Kept short on purpose: the last block settles by 500 ms, because a
+ * screen opened twenty times in one convoy must not feel slow the twentieth.
+ */
 const STAGGER_CAP = 6;
-const STAGGER_MS = 55;
+const STAGGER_MS = 40;
 
 /**
  * Content arriving on a screen: rises a few points and fades in, each block a
@@ -159,7 +163,7 @@ export function FadeIn({
   useEffect(() => {
     const anim = Animated.timing(progress, {
       toValue: 1,
-      duration: reduce ? 180 : 380,
+      duration: reduce ? 180 : 260,
       delay: reduce ? 0 : Math.min(index, STAGGER_CAP) * STAGGER_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
@@ -1069,6 +1073,9 @@ export function EmptyState({
   );
 }
 
+const SEGMENT_PAD = 3;
+const SEGMENT_GAP = 3;
+
 export function Segmented<K extends string>({
   options,
   value,
@@ -1081,8 +1088,53 @@ export function Segmented<K extends string>({
   style?: StyleProp<ViewStyle>;
 }) {
   const s = useStyles();
+  const reduce = useReduceMotion();
+  const [trackWidth, setTrackWidth] = useState(0);
+  const x = useState(() => new Animated.Value(0))[0];
+  const placed = useRef(false);
+
+  // Segments are equal width (flex: 1), so each slot is computable from the
+  // track's width alone.
+  const count = options.length;
+  const index = Math.max(0, options.findIndex((o) => o.key === value));
+  const slot =
+    trackWidth > 0
+      ? (trackWidth - SEGMENT_PAD * 2 - SEGMENT_GAP * (count - 1)) / count
+      : 0;
+  const offset = index * (slot + SEGMENT_GAP);
+
+  // The selection slides to its new segment rather than blinking across.
+  // The first placement (and every one under Reduce Motion) lands directly.
+  useEffect(() => {
+    if (slot <= 0) return;
+    if (!placed.current || reduce) {
+      placed.current = true;
+      x.setValue(offset);
+      return;
+    }
+    const anim = Animated.spring(x, {
+      toValue: offset,
+      speed: 22,
+      bounciness: 4,
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [offset, slot, reduce, x]);
+
+  const sliding = slot > 0;
   return (
-    <View style={[s.segment, style]} accessibilityRole="tablist">
+    <View
+      style={[s.segment, style]}
+      accessibilityRole="tablist"
+      onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+    >
+      {sliding ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[s.segmentThumb, { width: slot, transform: [{ translateX: x }] }]}
+        />
+      ) : null}
       {options.map((o) => {
         const active = o.key === value;
         return (
@@ -1092,7 +1144,9 @@ export function Segmented<K extends string>({
             accessibilityState={{ selected: active }}
             accessibilityLabel={o.done ? `${o.label}, set` : o.label}
             onPress={() => onChange(o.key)}
-            style={[s.segmentItem, active && s.segmentItemActive]}
+            // Until the track is measured, the active segment paints its own
+            // fill so the first frame is never blank.
+            style={[s.segmentItem, active && !sliding && s.segmentItemActive]}
           >
             <Text
               style={[s.segmentText, active && s.segmentTextActive]}
@@ -1449,8 +1503,16 @@ const useStyles = makeStyles((c) => ({
     flexDirection: "row",
     backgroundColor: c.fill,
     borderRadius: radius.control - 3,
-    padding: 3,
-    gap: 3,
+    padding: SEGMENT_PAD,
+    gap: SEGMENT_GAP,
+  },
+  segmentThumb: {
+    position: "absolute",
+    top: SEGMENT_PAD,
+    bottom: SEGMENT_PAD,
+    left: SEGMENT_PAD,
+    borderRadius: radius.control - 5,
+    backgroundColor: c.surface,
   },
   segmentItem: {
     flex: 1,
