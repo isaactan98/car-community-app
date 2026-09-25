@@ -49,6 +49,9 @@ jobs:
       run:
         working-directory: app
     env:
+      # Same repository Variable as app-apk.yml. Without it this APK — the one
+      # behind the stable releases/latest link — fell back to localhost.
+      EXPO_PUBLIC_SERVER_URL: ${{ vars.EXPO_PUBLIC_SERVER_URL }}
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
       KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -66,6 +69,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - run: npm ci
+
+      - name: Check the server URL the bundle will carry
+        run: node scripts/check-server-url.mjs --env
 
       - name: Generate android project (Expo prebuild)
         run: npx expo prebuild --platform android --no-install

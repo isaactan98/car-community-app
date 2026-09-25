@@ -8,6 +8,11 @@
  * genuinely expensive failure to diagnose after the fact, and it is trivial to
  * catch here.
  *
+ * Release builds also block cleartext traffic (no `usesCleartextTraffic`, no
+ * `NSAllowsArbitraryLoads`) since the Cloudflare Tunnel cutover, so an
+ * `http://` URL fails the same quiet way: every request and the live socket are
+ * refused by the OS before they leave the phone. Only `https://` may ship.
+ *
  * Usage:
  *   node scripts/check-server-url.mjs          validate every eas.json profile
  *   node scripts/check-server-url.mjs --env    also require a sane process env
@@ -23,10 +28,14 @@ const LOOPBACK = /^(https?:\/\/)?(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i;
 function reject(url) {
   if (!url) return "not set (the bundle would fall back to http://localhost:4000)";
   if (LOOPBACK.test(url)) return `points at the device itself (${url})`;
+  let parsed;
   try {
-    new URL(url);
+    parsed = new URL(url);
   } catch {
     return `is not a valid URL (${url})`;
+  }
+  if (parsed.protocol !== "https:") {
+    return `is not https:// (${url}) — release builds refuse cleartext http/ws`;
   }
   return null;
 }
@@ -67,8 +76,8 @@ if (failures.length > 0) {
   console.error("check-server-url: refusing to build.\n");
   for (const f of failures) console.error(`  - ${f}`);
   console.error(
-    "\nSet a URL the phone can actually reach — the tailnet address, or the" +
-      "\npublic tunnel once it is live. See app/.env.example.",
+    "\nSet the public https:// tunnel URL the phone can actually reach." +
+      "\nSee app/.env.example.",
   );
   process.exit(1);
 }

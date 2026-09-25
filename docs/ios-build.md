@@ -99,9 +99,12 @@ faster than reading server logs, and much faster than guessing.
   `expo-build-properties` ≥ 57.0.20. Do **not** hand-write
   `UIApplicationSceneManifest` into `app.json` as well — the plugin throws when
   the app already declares one. See [expo/fyi](https://github.com/expo/fyi/blob/main/ios-scene-lifecycle.md).
-- **Cleartext HTTP.** `NSAllowsArbitraryLoads` is set so the tailnet `http://`
-  and `ws://` URLs work. This has to come out at the tunnel cutover, along with
-  Android's `usesCleartextTraffic` — see "Release Gates" in
+- **No cleartext HTTP.** Since the tunnel cutover, builds talk to the server
+  over `https://` and `wss://` only. `NSAllowsArbitraryLoads` is gone.
+  `NSAllowsLocalNetworking` stays, so a Debug build can still reach a
+  `http://localhost` dev server, but a tailnet `http://100.x` URL is refused.
+  Android matches: `usesCleartextTraffic` is no longer set, so release APKs
+  block cleartext and debug builds keep it for Metro. See "Release Gates" in
   [`runs-v1-spec.md`](../runs-v1-spec.md).
 - **Background location** needs "Always". With only "While Using", sharing stops
   the moment the screen locks: iOS suspends the app, where Android's foreground
