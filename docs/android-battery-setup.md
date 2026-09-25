@@ -17,9 +17,8 @@ granted. Do the per-brand steps below **once** and you're set.
 > If your position keeps going stale for the group even after this, tell Isaac
 > your exact phone model — we expand this guide as real devices reveal quirks.
 
-> **Tailnet-phase testers:** the server is only reachable over Tailscale for
-> now — do the [tailnet tester setup](tailnet-tester-setup.md) (install,
-> invite, `/healthz` check, one-VPN-at-a-time warning) before any drive.
+> **New testers:** do the [tester setup](tester-setup.md) first (install,
+> `/healthz` check, invite code) before any drive.
 
 ---
 

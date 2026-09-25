@@ -74,6 +74,13 @@ proxied by default). Health probe: `GET /healthz`. All env vars (`PORT`,
 `DB_PATH`, `GEOFENCE_RADIUS_M`, timers…) are documented in
 [server/README.md](server/README.md).
 
+**Getting at the live database** — where `runs.db` actually sits on the
+homelab, how to back it up, and how to browse or delete rows from a browser:
+[server/README.md → Getting at the database](server/README.md#getting-at-the-database-homelab-runbook).
+The snippet above is illustrative; the deployed stack is a hand-written compose
+file on the homelab, and [`server/docker-compose.yml`](server/docker-compose.yml)
+is the reference build for a fresh host.
+
 > If the repo is private, the GHCR package is too: either make the package
 > public (Package settings → Change visibility) or `docker login ghcr.io`
 > on the server with a PAT that has `read:packages`.

@@ -143,6 +143,12 @@ No APK may be distributed beyond the tailnet inner circle until Workstream B
 is cut over: Cloudflare Tunnel live, `EXPO_PUBLIC_SERVER_URL` on `https://`,
 realtime on `wss://`, `usesCleartextTraffic` removed.
 
+Status (25 Sep 2026): tunnel live at `https://cca-backend.isaactan.work`,
+`eas.json` on `https://`, cleartext removed on Android and iOS, and CI refuses
+to build an APK whose server URL isn't `https://`. The gate clears once the
+`EXPO_PUBLIC_SERVER_URL` repository Variable points at the tunnel and a build
+from it passes the off-tailnet smoke test (mobile data, Tailscale off).
+
 (Workstreams defined in the Network Hardening iteration spec: A = tailnet
 hardening, ships immediately; B = Cloudflare Tunnel + SG production cutover,
 the group-release gate above.)

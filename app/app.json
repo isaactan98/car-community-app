@@ -13,7 +13,7 @@
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Runs connects to your group's server, which may be on your local network.",
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
+          "NSAllowsLocalNetworking": true
         }
       }
     },
@@ -60,9 +60,6 @@
       [
         "expo-build-properties",
         {
-          "android": {
-            "usesCleartextTraffic": true
-          },
           "ios": {
             "enableSceneSupport": true
           }
