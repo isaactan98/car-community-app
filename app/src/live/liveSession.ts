@@ -17,7 +17,7 @@
  */
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
-import { AppState, Linking } from "react-native";
+import { AppState, Linking, Platform } from "react-native";
 
 import type {
   ClientMessage,
@@ -65,6 +65,14 @@ interface SessionState {
   stopping: boolean;
   /** Last position actually sent (cadence anchor). lat/lng/ts only. */
   lastSent: Position | null;
+  /**
+   * The newest fix that passed the cadence check but found no open socket.
+   * Sent the moment the socket opens, so a fix that lands mid-reconnect (or
+   * before the first handshake finishes) is delayed, not lost. lat/lng/ts only.
+   */
+  pending: Position | null;
+  /** Timestamp of the newest fix accepted, to drop duplicates across feeds. */
+  newestFixTs: number;
   /** Recent fixes for client-side ETA estimation. lat/lng/ts only. */
   recent: Position[];
   lastEtaSentAt: number;
@@ -134,7 +142,11 @@ export interface LiveDiagnostics {
   /** What the OS has granted us, as of the last start. No coordinates. */
   locationPermission: "unknown" | "denied" | "whileInUse" | "always";
   /** How fixes are being collected, if at all. */
-  locationMode: "not started" | "foreground only" | "background service";
+  locationMode:
+    | "not started"
+    | "foreground only"
+    | "background service"
+    | "background service + live watcher";
   /** Why the location pipeline failed to start, verbatim from the OS. */
   lastLocationError: string | null;
   /** Raw fixes handed to us by the OS (before the send cadence thins them). */
@@ -245,6 +257,7 @@ function openSocket(s: SessionState) {
     s.lastInboundAt = Date.now();
     diag.everConnected = true;
     emit({ kind: "connection", connected: true });
+    flushPending(s);
   };
 
   ws.onmessage = (evt) => {
@@ -415,6 +428,30 @@ function sendMessage(s: SessionState, message: ClientMessage): boolean {
   }
 }
 
+/** Send the fix that was held back while the socket was down, if still newest. */
+function flushPending(s: SessionState) {
+  const p = s.pending;
+  if (!p) return;
+  s.pending = null;
+  if (s.lastSent && p.ts <= s.lastSent.ts) return;
+  if (sendPosition(s, p)) return;
+  s.pending = p; // socket dropped again already; keep it for the next open
+}
+
+function sendPosition(s: SessionState, position: Position): boolean {
+  const sent = sendMessage(s, {
+    type: "position",
+    lat: position.lat,
+    lng: position.lng,
+    ts: position.ts,
+  });
+  if (sent) {
+    s.lastSent = position;
+    diag.positionsSent += 1;
+  }
+  return sent;
+}
+
 function handleSnapshot(
   s: SessionState,
   snapshot: SnapshotMessage,
@@ -453,6 +490,11 @@ function handleFixes(fixes: Location.LocationObject[]) {
       lng: fix.coords.longitude,
       ts: fix.timestamp,
     };
+    // Android can feed the same fix twice (service + live watcher), and the
+    // service's JobScheduler path can deliver late and out of order. Only
+    // ever move forward in time.
+    if (position.ts <= s.newestFixTs) continue;
+    s.newestFixTs = position.ts;
     diag.fixesReceived += 1;
     diag.lastFixAt = Date.now();
 
@@ -461,16 +503,10 @@ function handleFixes(fixes: Location.LocationObject[]) {
     if (s.recent.length > 30) s.recent.splice(0, s.recent.length - 30);
 
     if (!shouldSendPosition(s.lastSent, position)) continue;
-    const sent = sendMessage(s, {
-      type: "position",
-      lat: position.lat,
-      lng: position.lng,
-      ts: position.ts,
-    });
-    if (sent) {
-      s.lastSent = position;
-      diag.positionsSent += 1;
-    }
+    // Not sent means no open socket: hold the newest one for onopen. Until
+    // something is sent, lastSent does not move, so every later fix passes
+    // the cadence check and replaces it — the queue is only ever one deep.
+    s.pending = sendPosition(s, position) ? null : position;
   }
 
   // Client-computed ETA to whichever leg target is ours right now (contract
@@ -664,6 +700,8 @@ async function beginSession(
     reconnectTimer: null,
     stopping: false,
     lastSent: null,
+    pending: null,
+    newestFixTs: 0,
     recent: [],
     lastEtaSentAt: 0,
     arrived: run.attendees.some(
@@ -749,6 +787,25 @@ async function beginSession(
       });
       s.usingBackgroundTask = true;
       diag.locationMode = "background service";
+      if (Platform.OS === "android") {
+        // The service alone is not enough on Android. expo-location hands
+        // every fix from it to JS through JobScheduler, and Samsung (One UI)
+        // defers those jobs hard — in testing, 2 fixes in over a minute
+        // instead of one every 5 s. A direct watcher gets the same fixes
+        // with no scheduler in between, and keeps working with the screen
+        // off because the foreground service keeps this process alive. The
+        // service stays for exactly that reason; duplicates are dropped by
+        // timestamp in handleFixes.
+        s.fgWatcher = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 5000,
+            distanceInterval: 0,
+          },
+          (fix) => handleFixes([fix]),
+        );
+        diag.locationMode = "background service + live watcher";
+      }
     } else {
       // Foreground-only fallback: works while the app is open.
       s.fgWatcher = await Location.watchPositionAsync(
@@ -760,6 +817,11 @@ async function beginSession(
         (fix) => handleFixes([fix]),
       );
       diag.locationMode = "foreground only";
+    }
+    // A stop that landed while we awaited the watcher found nothing to remove.
+    if (s.stopping && s.fgWatcher) {
+      s.fgWatcher.remove();
+      s.fgWatcher = null;
     }
     void seedFromLastKnown();
     emit({ kind: "sharing", sharing: true });
