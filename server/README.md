@@ -121,54 +121,149 @@ onboard the whole group); the `uses` counter is tracked in the DB.
 - **Retention:** position history is deleted 24 h after a run ends
   (scheduled sweep). ETAs live in memory only and vanish on end/leave/arrival.
 
-## Admin DB UI (Adminer)
+## Getting at the database (homelab runbook)
 
-`docker-compose.yml` runs the server plus [Adminer](https://www.adminer.org/)
-against the same `data/runs.db`, giving you browse / SELECT / UPDATE / DELETE
-and a SQL console in the browser:
+The live SQLite file is on the homelab, not in this repo and not on your laptop.
+As deployed today:
+
+| | |
+|---|---|
+| Compose file | `/DATA/Projects/car-community-backend/docker-compose.yml` |
+| Data dir (host) | `/DATA/Projects/car-community-backend/data` → `/app/data` |
+| DB file | `/DATA/Projects/car-community-backend/data/runs.db` |
+| Container | `car-community-backend-runs-server-1` |
+| Compose project / service | `car-community-backend` / `runs-server` |
+
+Docker there needs `sudo`. SSH in and `cd /DATA/Projects/car-community-backend`
+to run `docker compose` commands.
+
+> **That compose file is hand-written and is *not* this repo's
+> [`docker-compose.yml`](docker-compose.yml)** — different service name
+> (`runs-server` vs `server`), and it has no Adminer container. Don't clone the
+> repo on the homelab and `docker compose up -d` in `server/`: that starts a
+> *second* project with its own empty `./data`, fighting the live one for the
+> `:4000` bind. Edit the deployed file in place.
+
+If those paths ever change, rediscover them from the running container rather
+than guessing:
+
+```sh
+sudo docker inspect car-community-backend-runs-server-1 --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}{{"\n"}}{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+```
+
+### Back up first — always
+
+`VACUUM INTO` takes a clean, consistent copy even while the server is live,
+unlike `cp`, which can capture a torn WAL. This runs inside the container, so it
+needs no host paths and no repo checkout:
+
+```sh
+sudo docker exec car-community-backend-runs-server-1 node -e "new (require('better-sqlite3'))(process.env.DB_PATH||'/app/data/runs.db').exec(\"VACUUM INTO '/app/data/backup-$(date +%Y%m%d-%H%M%S).db'\")"
+```
+
+Silence means success. The file lands next to the DB, at
+`/DATA/Projects/car-community-backend/data/backup-<timestamp>.db`.
+
+To restore it, stop the stack, swap the file in, and clear the stale sidecars —
+leaving `-wal`/`-shm` behind gives you a half-restored DB:
+
+```sh
+sudo docker compose down && sudo cp data/backup-<timestamp>.db data/runs.db && sudo rm -f data/runs.db-wal data/runs.db-shm && sudo docker compose up -d
+```
+
+> `scripts/backup-db.sh` in this repo does the same thing, but assumes a repo
+> checkout and a service named `server` — neither is true on the homelab. Use
+> the `docker exec` line above there.
+
+### Browse and edit in a browser (sqlite-web)
+
+The homelab has no Adminer for this project. Start a throwaway
+[sqlite-web](https://github.com/coleifer/sqlite-web) container — the same image
+already used for the expense tracker — pointed at `runs.db`:
+
+```sh
+sudo docker run -d --name runs-db-web --user 1000:1000 -e SQLITE_DATABASE=/data/runs.db -v /DATA/Projects/car-community-backend/data:/data -p <TAILNET_IP>:8082:8080 coleifer/sqlite-web
+```
+
+Then open `http://<TAILNET_IP>:8082` — browse tables, edit rows, run SQL. Get
+the IP from `tailscale ip -4` on the host, or from the port bind already in the
+deployed compose file.
+
+Two things in that command that are not optional:
+
+- **`--user 1000:1000`.** `runs.db` is owned by uid 1000 (the `node` user in the
+  server image). As root the container can write, but the `-wal`/`-shm`
+  sidecars it creates come out root-owned — and then *the server* can no longer
+  write to its own database. That is an outage, not a permissions nitpick.
+- **Binding to `<TAILNET_IP>`, never `0.0.0.0`.** There is no password on this
+  UI. The network bind is the only thing standing between your data and anyone
+  who can reach the host. Never publish it on all interfaces, and never route it
+  through the public Cloudflare tunnel.
+
+Tear it down when you're finished rather than leaving it running:
+
+```sh
+sudo docker rm -f runs-db-web
+```
+
+### Deleting rows
+
+Foreign keys mean children first, or the delete fails. Deleting a run:
+
+```sql
+DELETE FROM positions     WHERE run_id = '<run-id>';
+DELETE FROM run_attendees WHERE run_id = '<run-id>';
+DELETE FROM runs          WHERE id     = '<run-id>';
+```
+
+Deleting a member — they may also be some run's `creator_id`, so delete or
+reassign those runs first:
+
+```sql
+DELETE FROM positions     WHERE member_id = '<member-id>';
+DELETE FROM run_attendees WHERE member_id = '<member-id>';
+DELETE FROM cars          WHERE member_id = '<member-id>';
+DELETE FROM members       WHERE id        = '<member-id>';
+```
+
+Revoking an invite code is just
+`DELETE FROM invite_codes WHERE code = '…'` — members who already joined keep
+their tokens, since the code is only checked at join time.
+
+Do this while no run is active. It won't corrupt anything mid-run, but connected
+phones hold WS sessions against state that no longer exists and behave
+accordingly. Note also that the server holds the file open in WAL mode: a write
+from another process can hit `database is locked` if it collides. Retry.
+
+### Without a UI at all
+
+For a one-off, skip the container and the open port entirely — the server image
+already has `better-sqlite3`:
+
+```sh
+sudo docker exec -it car-community-backend-runs-server-1 node -e "const db=new (require('better-sqlite3'))('/app/data/runs.db'); console.table(db.prepare('SELECT id,name,state,starts_at FROM runs ORDER BY starts_at DESC LIMIT 20').all());"
+```
+
+Swap the `SELECT` for a `DELETE` (in the order above) to remove rows.
+
+### Reference stack: this repo's compose file + Adminer
+
+[`docker-compose.yml`](docker-compose.yml) in this directory is the *reference*
+deployment — server plus [Adminer](https://www.adminer.org/) on the same
+`data/runs.db`, both bound to `TAILNET_IP` from `server/.env` (see
+`.env.example`). It is what a fresh homelab should be built from, but **it is
+not what is running today** (see the warning at the top of this section).
 
 ```sh
 cd server
-cp .env.example .env   # set TAILNET_IP to your Tailscale IP (tailscale ip -4)
+cp .env.example .env   # TAILNET_IP=... from `tailscale ip -4`
 docker compose up -d
 ```
 
-Then open the Adminer URL (see the port bind in the compose file) and log in:
-
-| Field | Value |
-|---|---|
-| System | **SQLite 3** |
-| Username / Password | *(leave blank — SQLite has no auth)* |
-| Database | `/data/runs.db` |
-
-> ⚠️ **Security — read this.** SQLite has no password, so Adminer's login is
-> **not** a real gate: anyone who can load the page can edit the DB. The only
-> thing protecting your data is the **network bind**. The compose file binds
-> Adminer (and the server) to a single **Tailscale IP** — `TAILNET_IP` in
-> `server/.env`, see `.env.example`. Never bind it to all interfaces
-> (`8081:8080`) and never route it
-> through the public Cloudflare tunnel. If you want a real login on top, put a
-> reverse proxy with basic-auth in front.
-
-Two operational notes:
-
-- **Write permission.** `runs.db` is owned by uid `1000` (the `node` user in
-  the server image). The compose runs Adminer as `user: "1000:1000"` so it can
-  actually write (and create the `-wal`/`-shm` sidecars). If edits fail as
-  read-only, that uid mapping is why.
-- **Concurrency (WAL).** The Node server holds the file open in WAL mode.
-  Concurrent reads are fine; a write from Adminer can occasionally hit
-  `database is locked` if it collides with the server. Prefer editing when runs
-  are inactive, and for multi-table changes respect the foreign keys (delete
-  children first: `positions` → `run_attendees` → `runs`).
-
-### Back up before you edit
-
-`VACUUM INTO` makes a clean, consistent copy even while the server is running:
-
-```sh
-sh scripts/backup-db.sh        # writes ./data/backup-<timestamp>.db
-```
+Adminer is then at `http://<TAILNET_IP>:8081` — System **SQLite 3**, username
+and password blank, database `/data/runs.db`. The same two rules apply: it runs
+as `user: "1000:1000"` for the uid reason above, and its login is not a gate, so
+the tailnet bind is the real security boundary.
 
 ## Schema note (P2 roles)
 
