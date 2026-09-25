@@ -34,6 +34,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type ReactElement,
   type ReactNode,
 } from "react";
 import {
@@ -76,7 +77,14 @@ import {
   loadCachedRun,
   loadCachedSnapshot,
 } from "../storage/storage";
-import { Avatar, Button, LiveBadge, Loading, WazeButton } from "../ui/components";
+import {
+  Avatar,
+  Button,
+  LiveBadge,
+  Loading,
+  WazeButton,
+  animateNextLayout,
+} from "../ui/components";
 import { haptic } from "../ui/haptics";
 import { Icon, type IconName } from "../ui/Icon";
 import {
@@ -95,7 +103,9 @@ import {
   useScheme,
   type Palette,
 } from "../ui/theme";
+import { useGlide } from "../ui/useGlide";
 import { useNow } from "../ui/useNow";
+import { useReduceMotion } from "../ui/useReduceMotion";
 
 /** Below this zoom, arrived members fold into the meetup pin. */
 const CLUSTER_ZOOM = 12;
@@ -170,6 +180,16 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
 
   const selfId = member?.id ?? "";
   const run = state.run;
+
+  /**
+   * Selecting a dot swaps the sheet's content and changes its height. Let the
+   * sheet resize and the new content fade in rather than snap.
+   */
+  const select = (id: string | null) => {
+    if (id === selected) return;
+    animateNextLayout(reduceMotion);
+    setSelected(id);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -392,7 +412,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
         onPress={() => {
           // MapLibre also fires the map's onPress right after a marker's;
           // ignore that echo or tapping a dot would deselect it instantly.
-          if (Date.now() - markerPressedAt.current > 400) setSelected(null);
+          if (Date.now() - markerPressedAt.current > 400) select(null);
         }}
         compass={false}
         // Bottom-left, just above the sheet: the top of the map is where the
@@ -410,14 +430,15 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
           const memberStale = isStale(pos.ts, now);
           const isSelf = m.memberId === selfId;
           return (
-            <Marker
+            <PersonMarker
               key={m.memberId}
-              lngLat={[pos.lng, pos.lat]}
-              {...personMarkerProps(isSelf)}
+              lat={pos.lat}
+              lng={pos.lng}
+              isSelf={isSelf}
               onPress={() => {
                 markerPressedAt.current = Date.now();
                 haptic.selection();
-                setSelected(m.memberId);
+                select(m.memberId);
               }}
             >
               <PersonDot
@@ -427,7 +448,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
                 selected={m.memberId === selected}
                 note={memberStale ? formatAge(pos.ts, now) : undefined}
               />
-            </Marker>
+            </PersonMarker>
           );
         })}
         {/* Places last so they stay on top of the crowd at the meetup. */}
@@ -477,7 +498,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
             leg={groupLeg}
             destinationLabel={run.destination?.label ?? ""}
             now={now}
-            onClose={() => setSelected(null)}
+            onClose={() => select(null)}
           />
         ) : iAmThere ? (
           <ArrivedReadout
@@ -528,7 +549,7 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
             leg={groupLeg}
             now={now}
             onSelect={(m) => {
-              setSelected(m.memberId);
+              select(m.memberId);
               centerOn(m.lastPosition);
             }}
           />
@@ -586,6 +607,32 @@ export default function LiveMapScreen({ route, navigation }: ScreenProps<"LiveMa
  * over the road casing rather than buried under it — while member dots and
  * place pins are <Marker> view annotations and always float above all of it.
  */
+/**
+ * A person on the map. The dot glides between fixes instead of teleporting
+ * every few seconds (see useGlide); the data behind it — distances, the car
+ * ahead, camera framing — still uses the real position.
+ */
+function PersonMarker({
+  lat,
+  lng,
+  isSelf,
+  onPress,
+  children,
+}: {
+  lat: number;
+  lng: number;
+  isSelf: boolean;
+  onPress: () => void;
+  children: ReactElement;
+}) {
+  const drawn = useGlide(lat, lng);
+  return (
+    <Marker lngLat={[drawn.lng, drawn.lat]} {...personMarkerProps(isSelf)} onPress={onPress}>
+      {children}
+    </Marker>
+  );
+}
+
 function RouteLine({ line }: { line: RouteLineShape }) {
   const c = usePalette();
   const direct = line.kind === "direct";
@@ -656,17 +703,6 @@ function noPositionReason(): string {
     return "Waiting for a GPS lock. This takes a moment outdoors, and may never come indoors or in a basement carpark.";
   }
   return "Finding your position…";
-}
-
-/** Camera flights are zoom animations; skip them under Reduce Motion. */
-function useReduceMotion(): boolean {
-  const [reduce, setReduce] = useState(false);
-  useEffect(() => {
-    void AccessibilityInfo.isReduceMotionEnabled().then(setReduce);
-    const sub = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduce);
-    return () => sub.remove();
-  }, []);
-  return reduce;
 }
 
 /**

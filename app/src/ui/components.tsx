@@ -28,6 +28,7 @@ import {
   Alert,
   Animated,
   Easing,
+  LayoutAnimation,
   Linking,
   Platform,
   Pressable,
@@ -175,6 +176,82 @@ export function FadeIn({
   return (
     <Animated.View style={[style, { opacity: progress, transform: [{ translateY }] }]}>
       {children}
+    </Animated.View>
+  );
+}
+
+/**
+ * Animate whatever layout the next render commits: content swapping in a
+ * sheet, a row appearing. Call it right before the state change. Resizes
+ * ease, new views fade in. Does nothing under Reduce Motion.
+ */
+export function animateNextLayout(reduce: boolean) {
+  if (reduce) return;
+  LayoutAnimation.configureNext(
+    LayoutAnimation.create(
+      220,
+      LayoutAnimation.Types.easeInEaseOut,
+      LayoutAnimation.Properties.opacity,
+    ),
+  );
+}
+
+/**
+ * Opens its content downward and fades it in, and closes it the same way
+ * before unmounting, so what arrives mid-screen (a banner) eases the layout
+ * below it aside instead of shoving it. Height rests at auto once open, so
+ * reflowing text and Dynamic Type still work. Snaps under Reduce Motion.
+ */
+export function Reveal({
+  visible = true,
+  children,
+}: {
+  visible?: boolean;
+  children: ReactNode;
+}) {
+  const reduce = useReduceMotion();
+  const progress = useState(() => new Animated.Value(0))[0];
+  const [mounted, setMounted] = useState(visible);
+  const [height, setHeight] = useState(0);
+  // Fully open: height goes back to auto so content can reflow.
+  const [settled, setSettled] = useState(false);
+  if (visible && !mounted) setMounted(true);
+  if (!visible && settled) setSettled(false);
+  const measured = height > 0;
+
+  useEffect(() => {
+    if (!mounted || !measured) return;
+    const anim = Animated.timing(progress, {
+      toValue: visible ? 1 : 0,
+      duration: reduce ? 0 : visible ? 260 : 200,
+      easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      // Height can't run on the native driver.
+      useNativeDriver: false,
+    });
+    anim.start(({ finished }) => {
+      if (!finished) return;
+      if (visible) {
+        setSettled(true);
+      } else {
+        setMounted(false);
+        setHeight(0);
+      }
+    });
+    return () => anim.stop();
+  }, [visible, mounted, measured, reduce, progress]);
+
+  if (!mounted) return null;
+  return (
+    <Animated.View
+      style={[
+        { opacity: progress },
+        !settled && {
+          overflow: "hidden",
+          height: progress.interpolate({ inputRange: [0, 1], outputRange: [0, height] }),
+        },
+      ]}
+    >
+      <View onLayout={(e) => setHeight(e.nativeEvent.layout.height)}>{children}</View>
     </Animated.View>
   );
 }
@@ -776,21 +853,25 @@ export function Plate({
 // ---------------------------------------------------------------------------
 
 /** Inline status message in the content (never a modal alert). */
-export function InlineBanner({
-  icon,
-  tone,
-  title,
-  body,
-  actionLabel,
-  onAction,
-}: {
+interface InlineBannerProps {
   icon: IconName;
   tone: "success" | "warning" | "error" | "neutral";
   title: string;
   body?: string;
   actionLabel?: string;
   onAction?: () => void;
-}) {
+}
+
+/** A banner opens into place when it appears (see Reveal). */
+export function InlineBanner(props: InlineBannerProps) {
+  return (
+    <Reveal>
+      <BannerBody {...props} />
+    </Reveal>
+  );
+}
+
+function BannerBody({ icon, tone, title, body, actionLabel, onAction }: InlineBannerProps) {
   const s = useStyles();
   const c = usePalette();
   const accent =
@@ -859,20 +940,23 @@ export function OfflineBanner({
   now: number;
   onRetry?: () => void;
 }) {
-  if (!visible) return null;
+  // Offline flips often in tunnels and carparks, so this one closes as
+  // smoothly as it opens.
   return (
-    <InlineBanner
-      icon="offline"
-      tone="warning"
-      title="Offline"
-      body={
-        (lastUpdatedAt !== null
-          ? `Showing info from ${formatAge(lastUpdatedAt, now)} ago. `
-          : "Showing the last saved info. ") + "Waze still works."
-      }
-      actionLabel={onRetry ? "Retry" : undefined}
-      onAction={onRetry}
-    />
+    <Reveal visible={visible}>
+      <BannerBody
+        icon="offline"
+        tone="warning"
+        title="Offline"
+        body={
+          (lastUpdatedAt !== null
+            ? `Showing info from ${formatAge(lastUpdatedAt, now)} ago. `
+            : "Showing the last saved info. ") + "Waze still works."
+        }
+        actionLabel={onRetry ? "Retry" : undefined}
+        onAction={onRetry}
+      />
+    </Reveal>
   );
 }
 
