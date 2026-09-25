@@ -8,14 +8,16 @@
  *
  * It doubles as the privacy indicator required by R7: the dock is visible if
  * and only if a live session is running, so "am I sharing?" is answered
- * without opening anything. It disappears the instant the run ends.
+ * without opening anything. It leaves the instant the run ends: a short
+ * slide down, never a lingering fade, so it can't be mistaken for "still
+ * sharing".
  *
  * It renders from the live session's own socket traffic — no extra polling,
  * no extra request — and falls back to the degraded-mode cache for the run
  * name so a dead server still leaves the dock usable (C5).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Animated, Easing, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { LatLng, Run, SnapshotMember } from "../api/types";
@@ -25,7 +27,7 @@ import {
 } from "../live/liveSession";
 import { distanceToCarAhead, formatDistance } from "../lib/geo";
 import { loadCachedRun } from "../storage/storage";
-import { Avatar, LiveBadge } from "./components";
+import { Avatar, LiveBadge, PressableScale } from "./components";
 import { Icon } from "./Icon";
 import {
   DOCK_HEIGHT,
@@ -39,6 +41,7 @@ import {
   usePalette,
   useScheme,
 } from "./theme";
+import { useReduceMotion } from "./useReduceMotion";
 
 interface DockData {
   runId: string;
@@ -159,29 +162,55 @@ export function LiveDock({
     });
   }, [adoptRun, clear]);
 
-  if (!data || hidden || data.runId === hiddenForRunId) return null;
+  const visible = !!data && !hidden && data.runId !== hiddenForRunId;
 
-  const { arrived, total } = counts(data.members);
-  const name = data.run?.name ?? "Live run";
-  const line = aheadLine(data, selfId, arrived, total);
+  // What's on screen. Trails `data` by one exit animation, so the dock can
+  // slide away showing what it showed rather than vanishing mid-frame.
+  const [shown, setShown] = useState<DockData | null>(null);
+  if (visible && data !== shown) setShown(data);
+
+  const reduce = useReduceMotion();
+  const progress = useState(() => new Animated.Value(0))[0];
+  useEffect(() => {
+    const anim = Animated.timing(progress, {
+      toValue: visible ? 1 : 0,
+      duration: reduce ? 0 : visible ? 320 : 180,
+      easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    });
+    anim.start(({ finished }) => {
+      if (finished && !visible) setShown(null);
+    });
+    return () => anim.stop();
+  }, [visible, reduce, progress]);
+
+  if (!shown) return null;
+
+  const { arrived, total } = counts(shown.members);
+  const name = shown.run?.name ?? "Live run";
+  const line = aheadLine(shown, selfId, arrived, total);
+  const translateY = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [reduce ? 0 : DOCK_HEIGHT / 2, 0],
+  });
 
   return (
-    <View
+    <Animated.View
       style={[
         s.wrap,
         { bottom: insets.bottom + spacing.s, left: ROW_INSET - 6, right: ROW_INSET - 6 },
+        { opacity: progress, transform: [{ translateY }] },
       ]}
-      pointerEvents="box-none"
+      // A dock on its way out can't be tapped.
+      pointerEvents={visible ? "box-none" : "none"}
     >
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`${name}, live. ${line}. Open the live map.`}
-        onPress={() => onOpen(data.runId)}
-        style={({ pressed }) => [
-          s.dock,
-          elevation(scheme, 2),
-          pressed && { opacity: 0.85 },
-        ]}
+        onPress={() => onOpen(shown.runId)}
+        scaleTo={0.98}
+        pressedStyle={{ opacity: 0.9 }}
+        style={[s.dock, elevation(scheme, 2)]}
       >
         {total > 0 ? (
           <View style={s.tally} accessible={false}>
@@ -211,8 +240,8 @@ export function LiveDock({
             Map
           </Text>
         </View>
-      </Pressable>
-    </View>
+      </PressableScale>
+    </Animated.View>
   );
 }
 
