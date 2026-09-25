@@ -3,7 +3,7 @@
     "base": {
       "node": "22.20.0",
       "env": {
-        "EXPO_PUBLIC_SERVER_URL": "http://100.124.2.91:4000"
+        "EXPO_PUBLIC_SERVER_URL": "https://cca-backend.isaactan.work"
       }
     },
     "development": {
